@@ -1,0 +1,18 @@
+{
+  "name": "おへんじ帖",
+  "short_name": "おへんじ帖",
+  "description": "noteコメントの返信管理",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#d32f2f",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#d32f2f"/>
+  <g transform="translate(256,256)">
+    <!-- Speech bubble -->
+    <rect x="-120" y="-120" width="240" height="180" rx="24" fill="#fff"/>
+    <polygon points="-40,60 -20,100 0,60" fill="#fff"/>
+    <!-- Lines in bubble -->
+    <rect x="-80" y="-80" width="160" height="16" rx="8" fill="#d32f2f" opacity="0.3"/>
+    <rect x="-80" y="-48" width="120" height="16" rx="8" fill="#d32f2f" opacity="0.3"/>
+    <rect x="-80" y="-16" width="140" height="16" rx="8" fill="#d32f2f" opacity="0.3"/>
+    <!-- Checkmark -->
+    <path d="M40,8 L70,-22 L80,-12 L40,28 L20,8 L30,-2 Z" fill="#d32f2f"/>
+  </g>
+</svg>

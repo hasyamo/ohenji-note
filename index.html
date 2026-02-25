@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#d32f2f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="おへんじ帖" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <title>おへんじ帖</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Header -->
+      <header class="header">
+        <h1 class="header-title">おへんじ帖</h1>
+        <div class="header-actions">
+          <button class="header-btn" id="refreshBtn" aria-label="更新">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 2v6h-6"></path>
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+              <path d="M3 22v-6h6"></path>
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+            </svg>
+          </button>
+          <button class="header-btn" id="settingsBtn" aria-label="設定">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1m17.07-7.07l-4.24 4.24m-4.24 4.24L5.93 17.07m12.14 0l-4.24-4.24m-4.24-4.24L5.93 5.93"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Summary Bar -->
+      <div class="summary-bar" id="summaryBar" hidden>
+        <span id="summaryText"></span>
+      </div>
+
+      <!-- Loading -->
+      <div class="loading" id="loading" hidden>
+        <div class="loading-spinner"></div>
+        <p class="loading-text" id="loadingText">読み込み中...</p>
+      </div>
+
+      <!-- Content -->
+      <main class="content" id="content">
+        <div class="empty-state" id="emptyState">
+          <p>設定からurlnameを登録してください</p>
+        </div>
+      </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay modal-overlay--top" id="settingsModal">
+      <div class="modal modal--top">
+        <h2 class="modal-title">設定</h2>
+        <label class="modal-label" for="urlnameInput">noteのurlname</label>
+        <input
+          type="text"
+          id="urlnameInput"
+          class="modal-input"
+          placeholder="例: hasyamo"
+        />
+        <p class="modal-hint">note.com/<strong>urlname</strong> の部分を入力</p>
+        <label class="modal-label" for="rangeSelect" style="margin-top: 20px">取得範囲</label>
+        <select id="rangeSelect" class="modal-input">
+          <option value="30">過去30日</option>
+          <option value="90">過去90日</option>
+          <option value="180">過去180日</option>
+          <option value="365">過去1年</option>
+          <option value="0">すべて</option>
+        </select>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="settingsCancelBtn">キャンセル</button>
+          <button class="btn btn-primary" id="settingsSaveBtn">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reply Confirm Modal -->
+    <div class="modal-overlay" id="replyModal">
+      <div class="modal">
+        <h2 class="modal-title">返信しましたか？</h2>
+        <p class="modal-reply-target" id="replyTarget"></p>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="replyNoBtn">いいえ</button>
+          <button class="btn btn-primary" id="replyYesBtn">返信した</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
