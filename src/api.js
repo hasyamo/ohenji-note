@@ -1,6 +1,6 @@
 import { sleep } from './utils.js'
 
-const PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/'
+export const PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/'
 
 /**
  * Fetch via Cloudflare Workers proxy using ?path= parameter.

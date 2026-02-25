@@ -1,6 +1,6 @@
 import './style.css'
 import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied } from './storage.js'
-import { fetchAllArticles, fetchUpdatedComments } from './api.js'
+import { fetchAllArticles, fetchUpdatedComments, PROXY_URL } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 
 // --- DOM refs ---
@@ -261,7 +261,8 @@ function render() {
           sessionStorage.setItem('ncm_pending', JSON.stringify(pendingComment))
         }
         const noteUrl = `https://note.com/${encodeURIComponent(article.urlname)}/n/${encodeURIComponent(article.key)}?scrollpos=comment&c=${encodeURIComponent(comment.key)}`
-        window.open(noteUrl, '_blank')
+        // Universal Links回避: CFワーカー経由でJSリダイレクト
+        window.open(`${PROXY_URL}?goto=${encodeURIComponent(noteUrl)}`, '_blank')
       })
 
       section.appendChild(card)
