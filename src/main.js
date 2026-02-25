@@ -179,6 +179,16 @@ function render() {
   const totalComments = articlesWithComments.reduce((sum, a) => sum + a.comments.length, 0)
   const totalReplied = totalComments - totalUnreplied
 
+  // Badge
+  document.title = totalUnreplied > 0 ? `(${totalUnreplied}) おへんじ帖` : 'おへんじ帖'
+  if (navigator.setAppBadge) {
+    if (totalUnreplied > 0) {
+      navigator.setAppBadge(totalUnreplied)
+    } else {
+      navigator.clearAppBadge()
+    }
+  }
+
   const toggleBtn = $('toggleRepliedBtn')
 
   if (totalComments > 0) {
