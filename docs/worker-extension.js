@@ -28,15 +28,6 @@ export default {
       return new Response(null, { headers: corsHeaders })
     }
 
-    // --- ?goto= (Universal Links回避リダイレクト) ---
-    const gotoParam = url.searchParams.get('goto')
-    if (gotoParam && gotoParam.startsWith('https://note.com/')) {
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><script>location.replace(${JSON.stringify(gotoParam)})</script></head><body></body></html>`
-      return new Response(html, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      })
-    }
-
     // --- ?path= (コメント管理PWA用) ---
     const pathParam = url.searchParams.get('path')
     if (pathParam) {
