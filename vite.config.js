@@ -3,7 +3,7 @@ import { writeFileSync } from 'fs'
 import { resolve } from 'path'
 
 export default defineConfig({
-  base: '/note-comment-manager-pwa/',
+  base: '/ohenji-note/',
   plugins: [
     {
       name: 'generate-sw',
