@@ -192,7 +192,7 @@ function render() {
       summaryBar.style.background = 'var(--status-replied-bg)'
       summaryBar.style.color = 'var(--status-replied)'
     }
-    toggleBtn.textContent = showReplied ? '未返信のみ' : `対応済み ${totalReplied}件`
+    toggleBtn.textContent = showReplied ? '未返信のみ' : `返信済み ${totalReplied}件`
     toggleBtn.hidden = totalReplied === 0
   } else {
     summaryBar.hidden = true
@@ -228,7 +228,7 @@ function render() {
     const countClass = article.unrepliedCount > 0 ? 'article-count--unreplied' : 'article-count--all-done'
     const countLabel = article.unrepliedCount > 0
       ? `${article.unrepliedCount}件未返信`
-      : '対応済み'
+      : '返信済み'
 
     header.innerHTML = `
       <span class="article-title">${escapeHtml(article.title)}</span>
