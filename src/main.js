@@ -20,6 +20,7 @@ const urlnameInput = $('urlnameInput')
 let articlesWithComments = []
 let isRefreshing = false
 let pendingComment = null // {commentKey, articleKey, commentBody}
+let showReplied = false
 
 // --- Modal helpers ---
 
@@ -67,6 +68,13 @@ $('settingsSaveBtn').addEventListener('click', () => {
   setRangeDays(Number(rangeSelect.value))
   closeModal(settingsModal)
   refresh()
+})
+
+// --- Toggle replied ---
+
+$('toggleRepliedBtn').addEventListener('click', () => {
+  showReplied = !showReplied
+  render()
 })
 
 // --- Refresh ---
@@ -169,6 +177,9 @@ function render() {
   // Summary
   const totalUnreplied = articlesWithComments.reduce((sum, a) => sum + a.unrepliedCount, 0)
   const totalComments = articlesWithComments.reduce((sum, a) => sum + a.comments.length, 0)
+  const totalReplied = totalComments - totalUnreplied
+
+  const toggleBtn = $('toggleRepliedBtn')
 
   if (totalComments > 0) {
     summaryBar.hidden = false
@@ -181,6 +192,8 @@ function render() {
       summaryBar.style.background = 'var(--status-replied-bg)'
       summaryBar.style.color = 'var(--status-replied)'
     }
+    toggleBtn.textContent = showReplied ? '未返信のみ' : `対応済み ${totalReplied}件`
+    toggleBtn.hidden = totalReplied === 0
   } else {
     summaryBar.hidden = true
   }
@@ -197,6 +210,14 @@ function render() {
   content.innerHTML = ''
 
   for (const article of articlesWithComments) {
+    // Filter comments based on toggle
+    const visibleComments = showReplied
+      ? article.comments
+      : article.comments.filter((c) => c.status !== 'replied')
+
+    // Skip article if no visible comments
+    if (visibleComments.length === 0) continue
+
     const section = document.createElement('div')
     section.className = 'article-section'
 
@@ -216,7 +237,7 @@ function render() {
     section.appendChild(header)
 
     // Comment cards
-    for (const comment of article.comments) {
+    for (const comment of visibleComments) {
       const card = document.createElement('div')
       card.className = 'comment-card'
 
