@@ -59,7 +59,7 @@
     <div class="modal-overlay modal-overlay--top" id="settingsModal">
       <div class="modal modal--top">
         <h2 class="modal-title">設定</h2>
-        <label class="modal-label" for="urlnameInput">noteのurlname</label>
+        <label class="modal-label" for="urlnameInput">クリエータ名</label>
         <input
           type="text"
           id="urlnameInput"
@@ -67,6 +67,7 @@
           placeholder="例: hasyamo"
         />
         <p class="modal-hint">note.com/<strong>urlname</strong> の部分を入力</p>
+        <p class="modal-error" id="settingsError" hidden></p>
         <label class="modal-label" for="rangeSelect" style="margin-top: 20px">取得範囲</label>
         <select id="rangeSelect" class="modal-input">
           <option value="30">過去30日</option>

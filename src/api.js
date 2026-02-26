@@ -15,6 +15,13 @@ async function proxyFetch(path) {
 }
 
 /**
+ * Validate that a creator exists by fetching the first page.
+ */
+export async function validateCreator(urlname) {
+  await proxyFetch(`/api/v2/creators/${encodeURIComponent(urlname)}/contents?kind=note&page=1`)
+}
+
+/**
  * Fetch all articles for a creator, paginating and filtering for commentCount > 0.
  * Calls onProgress(current, total) for UI updates.
  */

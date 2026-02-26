@@ -1,6 +1,6 @@
 import './style.css'
 import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied } from './storage.js'
-import { fetchAllArticles, fetchUpdatedComments } from './api.js'
+import { validateCreator, fetchAllArticles, fetchUpdatedComments } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 
 // --- DOM refs ---
@@ -49,6 +49,20 @@ if (visualViewport) {
   })
 }
 
+// --- Settings error ---
+
+const settingsError = $('settingsError')
+
+function showSettingsError(msg) {
+  settingsError.textContent = msg
+  settingsError.hidden = false
+}
+
+function clearSettingsError() {
+  settingsError.textContent = ''
+  settingsError.hidden = true
+}
+
 // --- Settings ---
 
 const rangeSelect = $('rangeSelect')
@@ -61,13 +75,30 @@ $('settingsBtn').addEventListener('click', () => {
 
 $('settingsCancelBtn').addEventListener('click', () => closeModal(settingsModal))
 
-$('settingsSaveBtn').addEventListener('click', () => {
+const saveBtn = $('settingsSaveBtn')
+
+saveBtn.addEventListener('click', async () => {
   const urlname = urlnameInput.value.trim()
   if (!urlname) return
-  setUrlname(urlname)
-  setRangeDays(Number(rangeSelect.value))
-  closeModal(settingsModal)
-  refresh()
+  clearSettingsError()
+  saveBtn.disabled = true
+  saveBtn.textContent = '確認中...'
+
+  try {
+    await validateCreator(urlname)
+    setUrlname(urlname)
+    setRangeDays(Number(rangeSelect.value))
+    closeModal(settingsModal)
+    refresh()
+  } catch (err) {
+    const msg = err.message.includes('404')
+      ? 'クリエータが見つかりません。名前を確認してください。'
+      : `取得に失敗しました: ${err.message}`
+    showSettingsError(msg)
+  } finally {
+    saveBtn.disabled = false
+    saveBtn.textContent = '保存'
+  }
 })
 
 // --- Toggle replied ---
@@ -125,6 +156,7 @@ async function refresh() {
   } catch (err) {
     if (!hasCache) {
       content.innerHTML = `<div class="error-banner">エラー: ${escapeHtml(err.message)}</div>`
+      content.hidden = false
     }
   }
 
