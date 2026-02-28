@@ -152,7 +152,6 @@ async function refresh() {
 
     saveCache(urlname, enriched)
     articlesWithComments = processComments(enriched, urlname)
-    render()
   } catch (err) {
     if (!hasCache) {
       content.innerHTML = `<div class="error-banner">エラー: ${escapeHtml(err.message)}</div>`
@@ -164,6 +163,7 @@ async function refresh() {
   content.hidden = false
   isRefreshing = false
   refreshBtn.classList.remove('refreshing')
+  render()
 }
 
 // --- Process comments ---
@@ -370,17 +370,28 @@ function render() {
     content.appendChild(section)
   }
 
-  // Show chibi reward when all replied
-  if (!hasVisibleComments) {
-    const chibiNames = ['chibi-sun', 'chibi-mon', 'chibi-tue', 'chibi-wed', 'chibi-thu', 'chibi-fri', 'chibi-sat']
-    const dayIndex = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' })).getDay()
-    const chibiSrc = `${import.meta.env.BASE_URL}icons/chibi/${chibiNames[dayIndex]}.png`
+  // Show chibi reward when all replied (not during refresh)
+  if (!hasVisibleComments && !isRefreshing) {
+    const chibiData = [
+      { name: 'chibi-sun', lines: ['全部おへんじできたね。あなたなら大丈夫。', 'おつかれさま。きっと気持ちは届いてるよ。', '丁寧に返せたね。あなたらしいなぁ。', 'えらいね。また明日も一緒に頑張ろうね。', '今日もちゃんと向き合えたね。素敵だよ。'] },
+      { name: 'chibi-mon', lines: ['全件返信、確認しました。完璧ですね。', '丁寧に返せましたね。その姿勢、素敵です。', '返信ゼロ件。今日のタスクは完了ですね。', '一つひとつ向き合えたこと、ちゃんと伝わってますよ。', 'お疲れさまです。あとはゆっくり休んでくださいね。'] },
+      { name: 'chibi-tue', lines: ['やったー！全部おへんじできたね！', 'すごいすごい！今日も頑張ったね！', 'おへんじコンプリート！えらい！', 'みんな喜んでるよ、きっと！', '全部返せた日って気持ちいいよね！'] },
+      { name: 'chibi-wed', lines: ['全部おへんじできたんだね。えらいね。', 'ゆっくりでいいんだよ。ちゃんと届いてるから。', 'おつかれさま。今日もよく頑張ったね。', 'あなたの言葉、きっと届いてるよ。', '全部返せたね。ほっとしたでしょ？'] },
+      { name: 'chibi-thu', lines: ['ふーん、全部返したんだ。まあ、悪くないけど。', 'べ、別に褒めてないからね。当然のことでしょ。', 'ちゃんとやるじゃない。…見直したかも。', '全件返信？…やるじゃん。', 'まあ、サボらなかったのは認めてあげる。'] },
+      { name: 'chibi-fri', lines: ['全部おへんじした！すごーい！', 'おへんじマスターだね！かっこいい！', 'やったね！これでスッキリ遊べるね！', 'ね、ね！全部終わったよ！お祝いしよ！', 'コンプリート！今日のMVPはあなた！'] },
+      { name: 'chibi-sat', lines: ['全部おへんじしたね。おつかれさま。', '頑張ったね。あとはゆっくりしよ。', 'えらいえらい。今日はもう休んでいいよ。', 'おへんじ終わったね。のんびりしよ。', '全部できたんだ。…えへへ、すごいね。'] },
+    ]
+    const debugDay = new URLSearchParams(location.search).get('day')
+    const dayIndex = debugDay !== null ? Number(debugDay) : new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' })).getDay()
+    const chibi = chibiData[dayIndex]
+    const chibiSrc = `${import.meta.env.BASE_URL}icons/chibi/${chibi.name}.png?v=${__APP_VERSION__}`
+    const line = chibi.lines[Math.floor(Math.random() * chibi.lines.length)]
 
     const reward = document.createElement('div')
     reward.className = 'chibi-reward'
     reward.innerHTML = `
       <img src="${chibiSrc}" alt="" />
-      <p>すべて返信済みです！</p>
+      <p>${escapeHtml(line)}</p>
     `
     content.appendChild(reward)
   }

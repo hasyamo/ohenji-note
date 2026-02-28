@@ -189,8 +189,14 @@ body {
 .chibi-reward p {
   margin-top: 16px;
   font-size: 14px;
-  color: var(--status-replied);
+  color: var(--on-surface);
   font-weight: 500;
+  background: var(--surface-container);
+  padding: 10px 16px;
+  border-radius: 16px;
+  max-width: 340px;
+  text-align: center;
+  line-height: 1.6;
 }
 
 @keyframes fadeIn {
