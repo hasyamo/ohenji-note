@@ -446,7 +446,7 @@ window.addEventListener('focus', () => {
 // --- Service Worker ---
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js')
+  navigator.serviceWorker.register(import.meta.env.BASE_URL + `sw.js?v=${__APP_VERSION__}`)
 }
 
 // --- Version ---
