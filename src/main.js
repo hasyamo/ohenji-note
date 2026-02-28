@@ -312,8 +312,41 @@ function render() {
         </div>
       `
 
-      // Deep link to note.com comment
-      card.addEventListener('click', () => {
+      // Long press → mark as replied
+      let longPressTimer = null
+      let isLongPress = false
+
+      function startLongPress() {
+        isLongPress = false
+        longPressTimer = setTimeout(() => {
+          isLongPress = true
+          if (comment.status !== 'replied') {
+            const bodyText = parseComment(comment.body || comment.comment || '')
+            pendingComment = {
+              commentKey: comment.key,
+              articleKey: article.key,
+              commentBody: bodyText,
+            }
+            openModal(replyModal)
+            replyTarget.textContent = bodyText
+          }
+        }, 500)
+      }
+
+      function cancelLongPress() {
+        clearTimeout(longPressTimer)
+      }
+
+      card.addEventListener('touchstart', startLongPress, { passive: true })
+      card.addEventListener('touchend', cancelLongPress)
+      card.addEventListener('touchmove', cancelLongPress)
+      card.addEventListener('mousedown', startLongPress)
+      card.addEventListener('mouseup', cancelLongPress)
+      card.addEventListener('mouseleave', cancelLongPress)
+
+      // Tap → open note.com
+      card.addEventListener('click', (e) => {
+        if (isLongPress) return
         if (comment.status === 'unreplied' || comment.status === 'liked') {
           const bodyText = parseComment(comment.body || comment.comment || '')
           pendingComment = {
