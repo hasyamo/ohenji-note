@@ -196,11 +196,11 @@ function processComments(articles, urlname) {
       return {
         ...article,
         comments: classified,
-        unrepliedCount: classified.filter((c) => c.status === 'unreplied').length,
+        unrepliedCount: classified.filter((c) => c.status !== 'replied').length,
       }
     })
     .filter((a) => a.comments.length > 0)
-    .sort((a, b) => b.unrepliedCount - a.unrepliedCount)
+    .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))
 }
 
 // --- Render ---
@@ -385,6 +385,10 @@ window.addEventListener('focus', () => {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js')
 }
+
+// --- Version ---
+
+$('appVersion').textContent = `おへんじ帖 v${__APP_VERSION__}`
 
 // --- Init ---
 

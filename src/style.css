@@ -433,6 +433,22 @@ body {
   margin-top: 24px;
 }
 
+.modal-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.modal-title-row .modal-title {
+  margin-bottom: 0;
+}
+
+.modal-version {
+  font-size: 11px;
+  color: var(--outline);
+}
+
 /* --- Buttons --- */
 
 .btn {
