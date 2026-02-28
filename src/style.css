@@ -171,6 +171,32 @@ body {
   padding: 0 0 env(safe-area-inset-bottom, 20px);
 }
 
+.chibi-reward {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+}
+
+.chibi-reward img {
+  max-width: 200px;
+  height: auto;
+  opacity: 0;
+  animation: fadeIn 0.5s ease-in forwards;
+}
+
+.chibi-reward p {
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--status-replied);
+  font-weight: 500;
+}
+
+@keyframes fadeIn {
+  to { opacity: 1; }
+}
+
 .empty-state {
   text-align: center;
   padding: 80px 20px;

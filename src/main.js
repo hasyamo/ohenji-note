@@ -251,6 +251,9 @@ function render() {
 
   content.innerHTML = ''
 
+  // Check if all visible comments are replied
+  let hasVisibleComments = false
+
   for (const article of articlesWithComments) {
     // Filter comments based on toggle
     const visibleComments = showReplied
@@ -259,6 +262,7 @@ function render() {
 
     // Skip article if no visible comments
     if (visibleComments.length === 0) continue
+    hasVisibleComments = true
 
     const section = document.createElement('div')
     section.className = 'article-section'
@@ -364,6 +368,21 @@ function render() {
     }
 
     content.appendChild(section)
+  }
+
+  // Show chibi reward when all replied
+  if (!hasVisibleComments) {
+    const chibiNames = ['chibi-sun', 'chibi-mon', 'chibi-tue', 'chibi-wed', 'chibi-thu', 'chibi-fri', 'chibi-sat']
+    const dayIndex = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' })).getDay()
+    const chibiSrc = `${import.meta.env.BASE_URL}icons/chibi/${chibiNames[dayIndex]}.png`
+
+    const reward = document.createElement('div')
+    reward.className = 'chibi-reward'
+    reward.innerHTML = `
+      <img src="${chibiSrc}" alt="" />
+      <p>すべて返信済みです！</p>
+    `
+    content.appendChild(reward)
   }
 }
 
