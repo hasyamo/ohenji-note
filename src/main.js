@@ -1,5 +1,5 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied } from './storage.js'
+import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchUpdatedComments } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 
@@ -67,9 +67,35 @@ function clearSettingsError() {
 
 const rangeSelect = $('rangeSelect')
 
+const mutedUsersList = $('mutedUsersList')
+
+function renderMutedUsers() {
+  const muted = getMutedUsers()
+  if (muted.length === 0) {
+    mutedUsersList.innerHTML = '<span class="muted-empty">なし</span>'
+    return
+  }
+  mutedUsersList.innerHTML = muted.map((u) =>
+    `<div class="muted-item"><span>${escapeHtml(u.nickname || u.urlname)}</span><button class="muted-remove" data-urlname="${escapeHtml(u.urlname)}">✕</button></div>`
+  ).join('')
+  mutedUsersList.querySelectorAll('.muted-remove').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      removeMutedUser(btn.dataset.urlname)
+      renderMutedUsers()
+      const urlname = getUrlname()
+      const cached = getCache(urlname)
+      if (cached) {
+        articlesWithComments = processComments(cached, urlname)
+        render()
+      }
+    })
+  })
+}
+
 $('settingsBtn').addEventListener('click', () => {
   urlnameInput.value = getUrlname()
   rangeSelect.value = String(getRangeDays())
+  renderMutedUsers()
   openModal(settingsModal)
 })
 
@@ -170,12 +196,13 @@ async function refresh() {
 
 function processComments(articles, urlname) {
   const manualReplied = getManualReplied()
+  const mutedUrlnames = getMutedUsers().map((u) => u.urlname)
 
   return articles
     .map((article) => {
-      // Filter out own comments
+      // Filter out own comments and muted users
       const otherComments = (article.comments || []).filter(
-        (c) => c.user && c.user.urlname !== urlname
+        (c) => c.user && c.user.urlname !== urlname && !mutedUrlnames.includes(c.user.urlname)
       )
 
       // Classify each comment
@@ -330,9 +357,12 @@ function render() {
               commentKey: comment.key,
               articleKey: article.key,
               commentBody: bodyText,
+              userUrlname: comment.user?.urlname,
+              userNickname: comment.user?.nickname || comment.user?.urlname || '匿名',
             }
             openModal(replyModal)
             replyTarget.textContent = bodyText
+            muteUserBtn.textContent = `${pendingComment.userNickname} を非表示`
           }
         }, 500)
       }
@@ -357,6 +387,8 @@ function render() {
             commentKey: comment.key,
             articleKey: article.key,
             commentBody: bodyText,
+            userUrlname: comment.user?.urlname,
+            userNickname: comment.user?.nickname || comment.user?.urlname || '匿名',
           }
           sessionStorage.setItem('ncm_pending', JSON.stringify(pendingComment))
         }
@@ -401,6 +433,7 @@ function render() {
 
 const replyModal = $('replyModal')
 const replyTarget = $('replyTarget')
+const muteUserBtn = $('muteUserBtn')
 
 function handleReturn() {
   const raw = sessionStorage.getItem('ncm_pending')
@@ -410,6 +443,7 @@ function handleReturn() {
   const pending = JSON.parse(raw)
   replyTarget.textContent = pending.commentBody
   pendingComment = pending
+  muteUserBtn.textContent = `${pending.userNickname || 'このユーザー'} を非表示`
   openModal(replyModal)
 }
 
@@ -431,6 +465,20 @@ $('replyYesBtn').addEventListener('click', () => {
 $('replyNoBtn').addEventListener('click', () => {
   pendingComment = null
   closeModal(replyModal)
+})
+
+muteUserBtn.addEventListener('click', () => {
+  if (pendingComment && pendingComment.userUrlname) {
+    addMutedUser(pendingComment.userUrlname, pendingComment.userNickname)
+    pendingComment = null
+    closeModal(replyModal)
+    const urlname = getUrlname()
+    const cached = getCache(urlname)
+    if (cached) {
+      articlesWithComments = processComments(cached, urlname)
+      render()
+    }
+  }
 })
 
 document.addEventListener('visibilitychange', () => {

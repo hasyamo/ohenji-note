@@ -35,6 +35,27 @@ export function setRangeDays(days) {
   localStorage.setItem(RANGE_KEY, String(days))
 }
 
+// Muted users — stored as [{urlname, nickname}]
+const MUTED_KEY = 'ncm_muted_users'
+
+export function getMutedUsers() {
+  const raw = localStorage.getItem(MUTED_KEY)
+  return raw ? JSON.parse(raw) : []
+}
+
+export function addMutedUser(urlname, nickname) {
+  const list = getMutedUsers()
+  if (!list.some((u) => u.urlname === urlname)) {
+    list.push({ urlname, nickname: nickname || urlname })
+    localStorage.setItem(MUTED_KEY, JSON.stringify(list))
+  }
+}
+
+export function removeMutedUser(urlname) {
+  const list = getMutedUsers().filter((u) => u.urlname !== urlname)
+  localStorage.setItem(MUTED_KEY, JSON.stringify(list))
+}
+
 // Cache
 export function getCache(urlname) {
   try {

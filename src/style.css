@@ -528,6 +528,64 @@ body {
   -webkit-box-orient: vertical;
 }
 
+/* --- Mute --- */
+
+.mute-btn {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 10px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--outline);
+  cursor: pointer;
+  text-align: center;
+}
+
+.mute-btn:active {
+  color: var(--on-surface-variant);
+}
+
+.muted-list {
+  border: 1px solid var(--outline-variant);
+  border-radius: 12px;
+  padding: 8px 12px;
+  min-height: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.muted-empty {
+  font-size: 13px;
+  color: var(--outline);
+  line-height: 24px;
+}
+
+.muted-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--on-surface);
+  padding: 2px 0;
+}
+
+.muted-remove {
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--outline);
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+.muted-remove:active {
+  color: var(--error);
+}
+
 .error-banner {
   background: var(--error-container);
   color: var(--error);
