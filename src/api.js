@@ -6,7 +6,7 @@ const PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/'
  * Fetch via Cloudflare Workers proxy using ?path= parameter.
  */
 async function proxyFetch(path) {
-  const url = `${PROXY_URL}?path=${encodeURIComponent(path)}`
+  const url = `${PROXY_URL}?path=${encodeURIComponent(path)}&source=ohenji-note`
   const res = await fetch(url)
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`)
@@ -114,6 +114,49 @@ export async function fetchAllComments(articles, onProgress) {
   }
 
   return result
+}
+
+/**
+ * Fetch list of ring user urlnames.
+ */
+export async function fetchRingUserList() {
+  const res = await fetch(`${PROXY_URL}api/ohenjicho/users`)
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+  const json = await res.json()
+  return json.userUrlnames || []
+}
+
+/**
+ * Fetch creator profile (nickname, avatar, urlname).
+ */
+export async function fetchCreatorProfile(urlname) {
+  const json = await proxyFetch(`/api/v2/creators/${encodeURIComponent(urlname)}`)
+  const creator = json.data
+  return {
+    urlname: creator.urlname,
+    nickname: creator.nickname,
+    avatarUrl: creator.profileImageUrl,
+  }
+}
+
+/**
+ * Opt out from おへんじ帖の輪.
+ */
+export async function optOutRing(urlname) {
+  const res = await fetch(`${PROXY_URL}api/ohenjicho/users/${encodeURIComponent(urlname)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
+}
+
+/**
+ * Opt in to おへんじ帖の輪 (re-register).
+ */
+export async function optInRing(urlname) {
+  const res = await fetch(`${PROXY_URL}api/ohenjicho/users/${encodeURIComponent(urlname)}`, {
+    method: 'PUT',
+  })
+  if (!res.ok) throw new Error(`API error: ${res.status}`)
 }
 
 /**

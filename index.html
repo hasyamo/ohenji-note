@@ -26,6 +26,14 @@
               <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
             </svg>
           </button>
+          <button class="header-btn" id="ringBtn" aria-label="おへんじ帖の輪">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+          </button>
           <button class="header-btn" id="settingsBtn" aria-label="設定">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"></circle>
@@ -81,6 +89,11 @@
         </select>
         <label class="modal-label" style="margin-top: 20px">非表示ユーザー</label>
         <div class="muted-list" id="mutedUsersList"></div>
+        <label class="modal-label" style="margin-top: 20px">おへんじ帖の輪</label>
+        <div class="ring-toggle-row">
+          <span class="ring-toggle-label">一覧に表示する</span>
+          <input type="checkbox" id="ringVisibleToggle" class="ring-toggle-input" checked />
+        </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="settingsCancelBtn">キャンセル</button>
           <button class="btn btn-primary" id="settingsSaveBtn">保存</button>
@@ -98,6 +111,31 @@
           <button class="btn btn-primary" id="replyYesBtn">返信した</button>
         </div>
         <button class="mute-btn" id="muteUserBtn">このユーザーを非表示</button>
+      </div>
+    </div>
+
+    <!-- Ring Modal -->
+    <div class="modal-overlay modal-overlay--top" id="ringModal">
+      <div class="modal modal--top">
+        <div class="modal-title-row">
+          <h2 class="modal-title">おへんじ帖の輪</h2>
+          <button class="btn btn-secondary" id="ringCloseBtn">閉じる</button>
+        </div>
+        <p class="ring-description">コメントを大切にするクリエーターたち</p>
+        <div id="ringContent" class="ring-content">
+          <p class="ring-loading">読み込み中...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Update Notification Modal -->
+    <div class="modal-overlay modal-overlay--top" id="updateModal">
+      <div class="modal modal--top">
+        <h2 class="modal-title">おへんじ帖 アップデート</h2>
+        <p class="update-body" id="updateBody"></p>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="updateCloseBtn">閉じる</button>
+        </div>
       </div>
     </div>
 

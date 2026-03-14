@@ -1,6 +1,6 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser } from './storage.js'
-import { validateCreator, fetchAllArticles, fetchUpdatedComments } from './api.js'
+import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible } from './storage.js'
+import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 
 // --- DOM refs ---
@@ -92,10 +92,13 @@ function renderMutedUsers() {
   })
 }
 
+const ringVisibleToggle = $('ringVisibleToggle')
+
 $('settingsBtn').addEventListener('click', () => {
   urlnameInput.value = getUrlname()
   rangeSelect.value = String(getRangeDays())
   renderMutedUsers()
+  ringVisibleToggle.checked = getRingVisible()
   openModal(settingsModal)
 })
 
@@ -114,6 +117,15 @@ saveBtn.addEventListener('click', async () => {
     await validateCreator(urlname)
     setUrlname(urlname)
     setRangeDays(Number(rangeSelect.value))
+    // Ring visible toggle
+    const newRingVisible = ringVisibleToggle.checked
+    const wasRingVisible = getRingVisible()
+    setRingVisible(newRingVisible)
+    if (wasRingVisible && !newRingVisible) {
+      await optOutRing(urlname).catch(() => {})
+    } else if (!wasRingVisible && newRingVisible) {
+      await optInRing(urlname).catch(() => {})
+    }
     closeModal(settingsModal)
     refresh()
   } catch (err) {
@@ -491,6 +503,80 @@ window.addEventListener('focus', () => {
   handleReturn()
 })
 
+// --- おへんじ帖の輪 ---
+
+const ringModal = $('ringModal')
+const ringContent = $('ringContent')
+
+$('ringBtn').addEventListener('click', () => {
+  openModal(ringModal)
+  loadRingUsers()
+})
+
+$('ringCloseBtn').addEventListener('click', () => closeModal(ringModal))
+
+async function loadRingUsers() {
+  ringContent.innerHTML = '<p class="ring-loading">読み込み中...</p>'
+  try {
+    const urlnames = await fetchRingUserList()
+    if (urlnames.length === 0) {
+      ringContent.innerHTML = '<p class="ring-empty">まだメンバーがいません</p>'
+      return
+    }
+
+    ringContent.innerHTML = ''
+    for (const urlname of urlnames) {
+      try {
+        const profile = await fetchCreatorProfile(urlname)
+        const card = document.createElement('a')
+        card.className = 'ring-card'
+        card.href = `https://note.com/${encodeURIComponent(profile.urlname)}`
+        card.target = '_blank'
+        card.rel = 'noopener'
+
+        const avatarContent = profile.avatarUrl
+          ? `<img src="${encodeURI(profile.avatarUrl)}" alt="" class="ring-avatar-img" />`
+          : '<div class="ring-avatar-placeholder">👤</div>'
+
+        card.innerHTML = `
+          <div class="ring-avatar">${avatarContent}</div>
+          <div class="ring-info">
+            <span class="ring-nickname">${escapeHtml(profile.nickname || profile.urlname)}</span>
+            <span class="ring-urlname">@${escapeHtml(profile.urlname)}</span>
+          </div>
+        `
+        ringContent.appendChild(card)
+      } catch {
+        // 取得失敗はスキップ
+      }
+    }
+  } catch (err) {
+    ringContent.innerHTML = `<p class="ring-empty">読み込みに失敗しました</p>`
+  }
+}
+
+// --- バージョンアップ通知 ---
+
+const VERSION_KEY = 'ncm_last_seen_version'
+
+function checkVersionUpdate() {
+  const lastSeen = localStorage.getItem(VERSION_KEY)
+  if (lastSeen !== __APP_VERSION__) {
+    showUpdateModal()
+  }
+}
+
+function showUpdateModal() {
+  const updateModal = $('updateModal')
+  $('updateBody').textContent =
+    'おへんじ帖を使ってるユーザが繋がれるように、「おへんじ帖の輪」を追加しました。\n\n公開したくない人は設定画面より非公開を選択してね。'
+  openModal(updateModal)
+  $('updateCloseBtn').addEventListener('click', () => {
+    localStorage.setItem(VERSION_KEY, __APP_VERSION__)
+    closeModal(updateModal)
+  }, { once: true })
+}
+
 // --- Service Worker ---
 
 if ('serviceWorker' in navigator) {
@@ -502,6 +588,8 @@ if ('serviceWorker' in navigator) {
 $('appVersion').textContent = `おへんじ帖 v${__APP_VERSION__}`
 
 // --- Init ---
+
+checkVersionUpdate()
 
 if (!getUrlname()) {
   openModal(settingsModal)

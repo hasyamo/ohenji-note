@@ -3,8 +3,12 @@
  *
  * ?id=   → おはヨミ用（既存互換）
  * ?path= → コメント管理PWA用（新規）
+ * /api/ohenjicho/users → おへんじ帖の輪 ユーザー一覧
  *
- * これで docs/worker.js を置き換えてデプロイする。
+ * KV binding: wrangler.toml に以下を追加
+ *   [[kv_namespaces]]
+ *   binding = "KV"
+ *   id = "<KV namespace ID>"
  */
 
 const ALLOWED_PATHS = [
@@ -15,17 +19,32 @@ const ALLOWED_PATHS = [
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url)
 
     // Handle preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders })
+    }
+
+    // --- おへんじ帖の輪 API ---
+    if (url.pathname === '/api/ohenjicho/users') {
+      if (request.method === 'GET') {
+        return handleListUsers(env)
+      }
+    }
+
+    const ringMatch = url.pathname.match(/^\/api\/ohenjicho\/users\/(.+)$/)
+    if (ringMatch && request.method === 'DELETE') {
+      return handleOptOut(decodeURIComponent(ringMatch[1]), env)
+    }
+    if (ringMatch && request.method === 'PUT') {
+      return handleOptIn(decodeURIComponent(ringMatch[1]), env)
     }
 
     // --- ?path= (コメント管理PWA用) ---
@@ -37,6 +56,11 @@ export default {
           status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
+      }
+
+      // ユーザー自動登録（おへんじ帖からのリクエストのみ）
+      if (env.KV && url.searchParams.get('source') === 'ohenji-note') {
+        extractAndSaveUrlname(pathParam, env.KV).catch(() => {})
       }
 
       const targetUrl = `https://note.com${pathParam}`
@@ -76,4 +100,86 @@ export default {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   },
+}
+
+// urlname を /api/v2/creators/{urlname}/contents のパターンから抽出して KV に保存
+async function extractAndSaveUrlname(path, kv) {
+  const match = path.match(/\/api\/v2\/creators\/([^/?]+)\/contents/)
+  if (!match) return
+
+  const urlname = decodeURIComponent(match[1])
+  const key = `ohenjicho:users:${urlname}`
+
+  const existing = await kv.get(key, 'json')
+  if (existing?.optOut === true) return
+
+  await kv.put(key, JSON.stringify({
+    urlname,
+    registeredAt: existing?.registeredAt || new Date().toISOString(),
+    optOut: false,
+  }))
+}
+
+async function handleListUsers(env) {
+  if (!env.KV) {
+    return new Response(JSON.stringify({ userUrlnames: [] }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const list = await env.KV.list({ prefix: 'ohenjicho:users:' })
+  const userUrlnames = []
+
+  for (const key of list.keys) {
+    const val = await env.KV.get(key.name, 'json')
+    if (val && !val.optOut) {
+      userUrlnames.push(val.urlname)
+    }
+  }
+
+  return new Response(JSON.stringify({ userUrlnames }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+async function handleOptIn(urlname, env) {
+  if (!env.KV) {
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const key = `ohenjicho:users:${urlname}`
+  const existing = await env.KV.get(key, 'json')
+
+  await env.KV.put(key, JSON.stringify({
+    urlname,
+    registeredAt: existing?.registeredAt || new Date().toISOString(),
+    optOut: false,
+  }))
+
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+async function handleOptOut(urlname, env) {
+  if (!env.KV) {
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const key = `ohenjicho:users:${urlname}`
+  const existing = await env.KV.get(key, 'json')
+
+  await env.KV.put(key, JSON.stringify({
+    urlname,
+    registeredAt: existing?.registeredAt || new Date().toISOString(),
+    optOut: true,
+  }))
+
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
 }

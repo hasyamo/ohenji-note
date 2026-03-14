@@ -35,6 +35,17 @@ export function setRangeDays(days) {
   localStorage.setItem(RANGE_KEY, String(days))
 }
 
+// Ring visibility setting
+const RING_VISIBLE_KEY = 'ncm_ring_visible'
+
+export function getRingVisible() {
+  return localStorage.getItem(RING_VISIBLE_KEY) !== 'false'
+}
+
+export function setRingVisible(visible) {
+  localStorage.setItem(RING_VISIBLE_KEY, visible ? 'true' : 'false')
+}
+
 // Muted users — stored as [{urlname, nickname}]
 const MUTED_KEY = 'ncm_muted_users'
 
