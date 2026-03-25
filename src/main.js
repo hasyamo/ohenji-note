@@ -519,10 +519,13 @@ async function loadRingUsers() {
   ringContent.innerHTML = '<p class="ring-loading">読み込み中...</p>'
   try {
     const urlnames = await fetchRingUserList()
+    const ringDesc = document.getElementById('ringDescription')
     if (urlnames.length === 0) {
       ringContent.innerHTML = '<p class="ring-empty">まだメンバーがいません</p>'
+      if (ringDesc) ringDesc.textContent = 'コメントを大切にするクリエーターたち'
       return
     }
+    if (ringDesc) ringDesc.textContent = `コメントを大切にする${urlnames.length}名のクリエーターたち`
 
     ringContent.innerHTML = ''
     for (const urlname of urlnames) {
@@ -569,7 +572,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'おへんじ帖を使ってるユーザが繋がれるように、「おへんじ帖の輪」を追加しました。\n\n公開したくない人は設定画面より非公開を選択してね。'
+    'おへんじ帖の輪の表示速度を改善しました。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)

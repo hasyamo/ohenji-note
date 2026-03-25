@@ -39,6 +39,7 @@ export default {
       }
     }
 
+
     const ringMatch = url.pathname.match(/^\/api\/ohenjicho\/users\/(.+)$/)
     if (ringMatch && request.method === 'DELETE') {
       return handleOptOut(decodeURIComponent(ringMatch[1]), env)
@@ -102,22 +103,77 @@ export default {
   },
 }
 
+// Valid urlname: alphanumeric, underscore, hyphen, dot only
+function isValidUrlname(name) {
+  return /^[a-zA-Z0-9_.\-]+$/.test(name) && !name.includes('http')
+}
+
+// Cleanup: remove invalid entries from KV and rebuild userlist
+async function handleCleanup(env) {
+  if (!env.KV) {
+    return new Response(JSON.stringify({ error: 'No KV' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const list = await env.KV.list({ prefix: 'ohenjicho:users:' })
+  const removed = []
+  const kept = []
+
+  for (const key of list.keys) {
+    const urlname = key.name.replace('ohenjicho:users:', '')
+    if (!isValidUrlname(urlname)) {
+      await env.KV.delete(key.name)
+      removed.push(urlname)
+    } else {
+      const val = await env.KV.get(key.name, 'json')
+      if (val && !val.optOut) {
+        kept.push(urlname)
+      }
+    }
+  }
+
+  await env.KV.put('ohenjicho:userlist', JSON.stringify(kept))
+
+  return new Response(JSON.stringify({ removed, kept, removedCount: removed.length, keptCount: kept.length }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+// userlist キーを更新するヘルパー
+async function updateUserlist(kv) {
+  const list = await kv.list({ prefix: 'ohenjicho:users:' })
+  const urlnames = []
+  for (const key of list.keys) {
+    const val = await kv.get(key.name, 'json')
+    if (val && !val.optOut) {
+      urlnames.push(val.urlname)
+    }
+  }
+  await kv.put('ohenjicho:userlist', JSON.stringify(urlnames))
+}
+
 // urlname を /api/v2/creators/{urlname}/contents のパターンから抽出して KV に保存
 async function extractAndSaveUrlname(path, kv) {
   const match = path.match(/\/api\/v2\/creators\/([^/?]+)\/contents/)
   if (!match) return
 
   const urlname = decodeURIComponent(match[1])
+  if (!isValidUrlname(urlname)) return
+
   const key = `ohenjicho:users:${urlname}`
 
   const existing = await kv.get(key, 'json')
   if (existing?.optOut === true) return
 
+  // 新規ユーザーの場合のみ userlist も更新
+  const isNew = !existing
   await kv.put(key, JSON.stringify({
     urlname,
     registeredAt: existing?.registeredAt || new Date().toISOString(),
     optOut: false,
   }))
+  if (isNew) await updateUserlist(kv)
 }
 
 async function handleListUsers(env) {
@@ -127,17 +183,15 @@ async function handleListUsers(env) {
     })
   }
 
-  const list = await env.KV.list({ prefix: 'ohenjicho:users:' })
-  const userUrlnames = []
-
-  for (const key of list.keys) {
-    const val = await env.KV.get(key.name, 'json')
-    if (val && !val.optOut) {
-      userUrlnames.push(val.urlname)
-    }
+  // userlist キーから一括取得（なければ旧方式で生成）
+  let urlnames = await env.KV.get('ohenjicho:userlist', 'json')
+  if (!urlnames) {
+    // 初回移行: 個別キーから userlist を生成
+    await updateUserlist(env.KV)
+    urlnames = await env.KV.get('ohenjicho:userlist', 'json') || []
   }
 
-  return new Response(JSON.stringify({ userUrlnames }), {
+  return new Response(JSON.stringify({ userUrlnames: urlnames }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
 }
@@ -157,6 +211,7 @@ async function handleOptIn(urlname, env) {
     registeredAt: existing?.registeredAt || new Date().toISOString(),
     optOut: false,
   }))
+  await updateUserlist(env.KV)
 
   return new Response(JSON.stringify({ ok: true }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -178,6 +233,7 @@ async function handleOptOut(urlname, env) {
     registeredAt: existing?.registeredAt || new Date().toISOString(),
     optOut: true,
   }))
+  await updateUserlist(env.KV)
 
   return new Response(JSON.stringify({ ok: true }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
