@@ -572,7 +572,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'おへんじ帖の輪の表示速度を改善しました。'
+    '設定画面にnote IDの確認方法を追加しました。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)

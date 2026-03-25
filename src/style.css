@@ -403,7 +403,7 @@ body {
 .modal--top {
   border-radius: 0 0 28px 28px;
   padding-bottom: 28px;
-  max-height: 80vh;
+  max-height: 90vh;
   overflow-y: auto;
   transform: translateY(-100%);
 }
