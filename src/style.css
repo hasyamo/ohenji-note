@@ -700,6 +700,20 @@ body {
   margin: 16px 0;
 }
 
+/* --- Footer --- */
+
+.footer {
+  text-align: center;
+  font-size: 12px;
+  color: var(--outline);
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.footer-link {
+  color: var(--outline);
+  text-decoration: underline;
+}
+
 .error-banner {
   background: var(--error-container);
   color: var(--error);

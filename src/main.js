@@ -572,7 +572,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '設定画面にnote IDの確認方法を追加しました。'
+    'たくさんの方に使っていただけて、とても嬉しいです。\n\nまだ読んでいない方は、画面下部のリンクから開発の背景や想いをぜひ読んでみてください。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
