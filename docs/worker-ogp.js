@@ -59,7 +59,6 @@ export default {
       return new Response('Not Found', { status: 404 })
     }
 
-    const id = url.searchParams.get('id') || ''
     const dayParam = url.searchParams.get('day')
     const day = (dayParam && DAY_MAP[dayParam] !== undefined) ? dayParam : null
 
@@ -67,8 +66,7 @@ export default {
 
     // ブラウザ → GitHub Pagesにリダイレクト
     if (!isCrawler(userAgent)) {
-      const redirectUrl = id ? `${GITHUB_PAGES}?id=${id}` : GITHUB_PAGES
-      return Response.redirect(redirectUrl, 302)
+      return Response.redirect(GITHUB_PAGES, 302)
     }
 
     // クローラー → OGPメタタグ付きHTMLを返す
@@ -77,7 +75,7 @@ export default {
     if (day) {
       const chibi = CHIBI_DATA[day]
       ogpImageUrl = `${GITHUB_PAGES}ogp/ogp-${day}.png`
-      description = `今日の担当は${chibi.name}。「${chibi.line}」noteのコメント返信を管理するツール「おへんじ帖」`
+      description = `私の推しは${chibi.name}。「${chibi.line}」noteのコメント返信を管理するツール「おへんじ帖」`
     } else {
       ogpImageUrl = `${GITHUB_PAGES}ogp/ogp-default.png`
       description = 'noteのコメント返信を管理するツール「おへんじ帖」'
