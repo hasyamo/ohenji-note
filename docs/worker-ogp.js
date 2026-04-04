@@ -19,14 +19,14 @@ const DAY_MAP = {
 
 const DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 
-const CHIBI_NAMES = {
-  sun: '日和',
-  mon: '月子',
-  tue: '陽',
-  wed: 'しずく',
-  thu: '凛華',
-  fri: 'るな',
-  sat: 'まひる',
+const CHIBI_DATA = {
+  sun: { name: '日和', line: '全部おへんじできたね。あなたなら大丈夫。' },
+  mon: { name: '月子', line: '全件返信、確認しました。完璧ですね。' },
+  tue: { name: '陽', line: 'やったー！全部おへんじできたね！' },
+  wed: { name: 'しずく', line: 'ゆっくりでいいんだよ。ちゃんと届いてるから。' },
+  thu: { name: '凛華', line: 'ふーん、全部返したんだ。まあ、悪くないけど。' },
+  fri: { name: 'るな', line: 'ね、ね！全部終わったよ！お祝いしよ！' },
+  sat: { name: 'まひる', line: '頑張ったね。あとはゆっくりしよ。' },
 }
 
 // OGPクローラーのUser-Agent判定
@@ -73,9 +73,9 @@ export default {
 
     // クローラー → OGPメタタグ付きHTMLを返す
     const ogpImageUrl = `${GITHUB_PAGES}ogp/ogp-${day}.png`
-    const chibiName = CHIBI_NAMES[day]
-    const title = id ? `${id}さんのおへんじ帖` : 'おへんじ帖'
-    const description = `今日の担当は${chibiName}。noteのコメント返信を管理するツール「おへんじ帖」`
+    const chibi = CHIBI_DATA[day]
+    const title = 'おへんじ帖'
+    const description = `今日の担当は${chibi.name}。「${chibi.line}」noteのコメント返信を管理するツール「おへんじ帖」`
 
     const html = `<!DOCTYPE html>
 <html lang="ja">
