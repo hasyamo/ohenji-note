@@ -4,8 +4,8 @@
  * おへんじ帖のリンク共有時に、曜日ごとのキャラOGP画像を表示する。
  *
  * URL例:
- *   /ohenjicho?id=xxx            → 今日の曜日のキャラOGP
- *   /ohenjicho?id=xxx&day=mon    → 月曜キャラのOGP
+ *   /ohenji-note?id=xxx            → 今日の曜日のキャラOGP
+ *   /ohenji-note?id=xxx&day=mon    → 月曜キャラのOGP
  *
  * - OGPクローラー → OGPメタタグ付きHTMLを返す
  * - ブラウザ      → GitHub Pagesにリダイレクト
@@ -55,13 +55,13 @@ export default {
   async fetch(request) {
     const url = new URL(request.url)
 
-    if (url.pathname !== '/ohenjicho') {
+    if (url.pathname !== '/ohenji-note') {
       return new Response('Not Found', { status: 404 })
     }
 
     const id = url.searchParams.get('id') || ''
     const dayParam = url.searchParams.get('day')
-    const day = (dayParam && DAY_MAP[dayParam] !== undefined) ? dayParam : getTodayDayName()
+    const day = (dayParam && DAY_MAP[dayParam] !== undefined) ? dayParam : null
 
     const userAgent = request.headers.get('User-Agent') || ''
 
@@ -72,10 +72,16 @@ export default {
     }
 
     // クローラー → OGPメタタグ付きHTMLを返す
-    const ogpImageUrl = `${GITHUB_PAGES}ogp/ogp-${day}.png`
-    const chibi = CHIBI_DATA[day]
     const title = 'おへんじ帖'
-    const description = `今日の担当は${chibi.name}。「${chibi.line}」noteのコメント返信を管理するツール「おへんじ帖」`
+    let ogpImageUrl, description
+    if (day) {
+      const chibi = CHIBI_DATA[day]
+      ogpImageUrl = `${GITHUB_PAGES}ogp/ogp-${day}.png`
+      description = `今日の担当は${chibi.name}。「${chibi.line}」noteのコメント返信を管理するツール「おへんじ帖」`
+    } else {
+      ogpImageUrl = `${GITHUB_PAGES}ogp/ogp-default.png`
+      description = 'noteのコメント返信を管理するツール「おへんじ帖」'
+    }
 
     const html = `<!DOCTYPE html>
 <html lang="ja">
