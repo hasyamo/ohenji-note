@@ -106,7 +106,7 @@ Character: Rinka (Thursday)
 - Pose: arms crossed, face turned slightly away (tsundere pose)
 - Expression: slight smirk, blushing cheeks, trying to hide being impressed
 - Personality comes through: tsundere, cool but secretly caring
-```
+
 
 ### 金曜：るな（Runa）
 
@@ -147,6 +147,65 @@ Character: Hiyori (Sunday)
 - Personality comes through: gentle, nurturing, gives energy for the new week
 ```
 
+### 木曜：鈴（Suzu）
+
+```
+```
+{共通プロンプト}
+
+Character: Suzu
+- Silver hair in playful twin tails
+- Bright blue sparkling eyes
+- Pose: leaning slightly forward with both hands held behind her back, or one hand lightly raised in a playful wave
+- Expression: mischievous cheerful smile, full of playful energy
+- Personality comes through: teasing, affectionate, lively younger-sister vibe
+```
+
+
+### 姉妹シーン用 共通追加ブロック
+
+```
+```
+Sibling scene requirements:
+- Show a clear older sister / younger sister relationship
+- The older sister should appear slightly taller and more composed
+- The younger sister should appear slightly smaller, more playful, and more energetic
+- Their poses and expressions should show a natural sibling dynamic
+- Keep the interaction cute, light, and affectionate
+- The younger sister may lean toward, cling to, or lightly tug on the older sister
+- The older sister may look slightly annoyed or embarrassed, but not truly upset
+- Emphasize contrast: cool older sister vs playful younger sister
+- Keep both characters fully visible in the frame
+- Maintain the same chibi style consistency as the single-character illustrations
+```
+```
+
+
+### 姉妹シーン
+{共通プロンプト}
+
+Two characters: Rinka and Suzu
+{姉妹シーン用 共通追加ブロック}
+
+Character 1: Rinka (older sister)
+- Black wolf-cut bob hair, messy and layered, hair flicking outward
+- Amber/golden sharp eyes
+- Pose: arms crossed, face turned slightly away, standing with composed tsundere posture
+- Expression: slight smirk, blushing cheeks, trying to act cool and unbothered
+- Personality comes through: tsundere, cool but secretly caring
+
+Character 2: Suzu (younger sister)
+- Silver hair in playful twin tails
+- Bright blue sparkling eyes
+- Pose: leaning against Rinka's side, lightly tugging her sleeve or clinging to one arm
+- Expression: big mischievous smile, cheerful and teasing
+- Personality comes through: playful, affectionate, energetic younger sister
+
+Interaction:
+- Suzu is cheerfully invading Rinka's personal space
+- Rinka looks mildly embarrassed and slightly annoyed, but allows it
+- The mood is cute, playful, and clearly sister-like
+- Emphasize the contrast between Rinka's cool tsundere energy and Suzu's bright teasing energy
 ---
 
 ## 実装仕様（PWA側）

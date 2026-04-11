@@ -2,6 +2,82 @@ import './style.css'
 import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
+import charactersData from './rewards/characters.json'
+
+// --- Reward selection (unreplied-zero chibi演出) ---
+
+// Return JST weekday (0=Sun..6=Sat), overridable via ?day=N
+function getWeekdayJst() {
+  const debugDay = new URLSearchParams(location.search).get('day')
+  if (debugDay !== null) return Number(debugDay)
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' })).getDay()
+}
+
+// Return JST date string YYYY-MM-DD, overridable via ?date=YYYY-MM-DD
+function getDateStringJst() {
+  const debugDate = new URLSearchParams(location.search).get('date')
+  if (debugDate) return debugDate
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }))
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// Deterministic string -> unsigned 32bit hash (FNV-1a)
+function hashString(str) {
+  let h = 2166136261
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+// Pick one item from a weighted list using a numeric seed
+function pickWeighted(items, seed) {
+  const total = items.reduce((s, it) => s + (it.weight ?? 1), 0)
+  const r = (seed % 100000) / 100000 * total
+  let acc = 0
+  for (const it of items) {
+    acc += it.weight ?? 1
+    if (r < acc) return it
+  }
+  return items[items.length - 1]
+}
+
+// Pick today's reward (character + one line variation)
+function pickReward() {
+  const weekday = getWeekdayJst()
+  const dateStr = getDateStringJst()
+
+  const candidates = charactersData.filter((c) => c.weekday === weekday)
+  if (candidates.length === 0) return null
+
+  const charSeed = hashString(`${dateStr}:char`)
+  const character = pickWeighted(candidates, charSeed)
+
+  const lineSeed = hashString(`${dateStr}:${character.id}:line`)
+  const variation = character.lines[lineSeed % character.lines.length]
+
+  return { character, variation }
+}
+
+// Render a line variation (array of strings) into HTML
+// If a string contains a full-width colon "：", split into speaker + body
+function renderLinesHtml(variation) {
+  return variation
+    .map((line) => {
+      const idx = line.indexOf('：')
+      if (idx >= 0) {
+        const speaker = line.slice(0, idx)
+        const body = line.slice(idx + 1)
+        return `<p class="chibi-reward__line"><span class="chibi-reward__speaker">${escapeHtml(speaker)}</span>${escapeHtml(body)}</p>`
+      }
+      return `<p class="chibi-reward__line">${escapeHtml(line)}</p>`
+    })
+    .join('')
+}
 
 // --- DOM refs ---
 const $ = (id) => document.getElementById(id)
@@ -416,28 +492,19 @@ function render() {
 
   // Show chibi reward when all replied (not during refresh)
   if (!hasVisibleComments && !isRefreshing) {
-    const chibiData = [
-      { name: 'chibi-sun', lines: ['全部おへんじできたね。あなたなら大丈夫。', 'おつかれさま。きっと気持ちは届いてるよ。', '丁寧に返せたね。あなたらしいなぁ。', 'えらいね。また明日も一緒に頑張ろうね。', '今日もちゃんと向き合えたね。素敵だよ。'] },
-      { name: 'chibi-mon', lines: ['全件返信、確認しました。完璧ですね。', '丁寧に返せましたね。その姿勢、素敵です。', '返信ゼロ件。今日のタスクは完了ですね。', '一つひとつ向き合えたこと、ちゃんと伝わってますよ。', 'お疲れさまです。あとはゆっくり休んでくださいね。'] },
-      { name: 'chibi-tue', lines: ['やったー！全部おへんじできたね！', 'すごいすごい！今日も頑張ったね！', 'おへんじコンプリート！えらい！', 'みんな喜んでるよ、きっと！', '全部返せた日って気持ちいいよね！'] },
-      { name: 'chibi-wed', lines: ['全部おへんじできたんだね。えらいね。', 'ゆっくりでいいんだよ。ちゃんと届いてるから。', 'おつかれさま。今日もよく頑張ったね。', 'あなたの言葉、きっと届いてるよ。', '全部返せたね。ほっとしたでしょ？'] },
-      { name: 'chibi-thu', lines: ['ふーん、全部返したんだ。まあ、悪くないけど。', 'べ、別に褒めてないからね。当然のことでしょ。', 'ちゃんとやるじゃない。…見直したかも。', '全件返信？…やるじゃん。', 'まあ、サボらなかったのは認めてあげる。'] },
-      { name: 'chibi-fri', lines: ['全部おへんじした！すごーい！', 'おへんじマスターだね！かっこいい！', 'やったね！これでスッキリ遊べるね！', 'ね、ね！全部終わったよ！お祝いしよ！', 'コンプリート！今日のMVPはあなた！'] },
-      { name: 'chibi-sat', lines: ['全部おへんじしたね。おつかれさま。', '頑張ったね。あとはゆっくりしよ。', 'えらいえらい。今日はもう休んでいいよ。', 'おへんじ終わったね。のんびりしよ。', '全部できたんだ。…えへへ、すごいね。'] },
-    ]
-    const debugDay = new URLSearchParams(location.search).get('day')
-    const dayIndex = debugDay !== null ? Number(debugDay) : new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' })).getDay()
-    const chibi = chibiData[dayIndex]
-    const chibiSrc = `${import.meta.env.BASE_URL}icons/chibi/${chibi.name}.png?v=${__APP_VERSION__}`
-    const line = chibi.lines[Math.floor(Math.random() * chibi.lines.length)]
+    const picked = pickReward()
+    if (picked) {
+      const { character, variation } = picked
+      const chibiSrc = `${import.meta.env.BASE_URL}icons/chibi/${character.fileName}?v=${__APP_VERSION__}`
 
-    const reward = document.createElement('div')
-    reward.className = 'chibi-reward'
-    reward.innerHTML = `
-      <img src="${chibiSrc}" alt="" />
-      <p>${escapeHtml(line)}</p>
-    `
-    content.appendChild(reward)
+      const reward = document.createElement('div')
+      reward.className = 'chibi-reward'
+      reward.innerHTML = `
+        <img src="${chibiSrc}" alt="" />
+        <div class="chibi-reward__text">${renderLinesHtml(variation)}</div>
+      `
+      content.appendChild(reward)
+    }
   }
 }
 
@@ -572,7 +639,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'たくさんの方に使っていただけて、とても嬉しいです。\n\nまだ読んでいない方は、画面下部のリンクから開発の背景や想いをぜひ読んでみてください。'
+    '木曜日担当「凛華」に、妹の「鈴」との姉妹シーンを追加しました。\n\n木曜の未返信ゼロのタイミングで、たまに2人の掛け合いが見られます。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)

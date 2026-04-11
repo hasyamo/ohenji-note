@@ -186,17 +186,30 @@ body {
   animation: fadeIn 0.5s ease-in forwards;
 }
 
-.chibi-reward p {
+.chibi-reward__text {
   margin-top: 16px;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chibi-reward__line {
   font-size: 14px;
   color: var(--on-surface);
   font-weight: 500;
   background: var(--surface-container);
   padding: 10px 16px;
   border-radius: 16px;
-  max-width: 340px;
   text-align: center;
   line-height: 1.6;
+}
+
+.chibi-reward__speaker {
+  display: inline-block;
+  font-weight: 700;
+  color: var(--on-surface-variant);
+  margin-right: 6px;
 }
 
 @keyframes fadeIn {
