@@ -34,16 +34,68 @@ function hashString(str) {
   return h >>> 0
 }
 
-// Pick one item from a weighted list using a numeric seed
-function pickWeighted(items, seed) {
-  const total = items.reduce((s, it) => s + (it.weight ?? 1), 0)
-  const r = (seed % 100000) / 100000 * total
-  let acc = 0
-  for (const it of items) {
-    acc += it.weight ?? 1
-    if (r < acc) return it
+// Seeded shuffle (Fisher-Yates)
+function seededShuffle(arr, seed) {
+  const result = [...arr]
+  let s = seed
+  for (let i = result.length - 1; i > 0; i--) {
+    s = hashString(String(s) + ':' + i)
+    const j = s % (i + 1);
+    [result[i], result[j]] = [result[j], result[i]]
   }
-  return items[items.length - 1]
+  return result
+}
+
+// Get all Thursdays in a given year/month
+function getThursdays(year, month) {
+  const result = []
+  const d = new Date(Date.UTC(year, month - 1, 1))
+  while (d.getUTCMonth() === month - 1) {
+    if (d.getUTCDay() === 4) {
+      const str = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0')
+      result.push(str)
+    }
+    d.setUTCDate(d.getUTCDate() + 1)
+  }
+  return result
+}
+
+// For weekdays with multiple candidates (e.g. Thursday: rinka + rinka-suzu),
+// use monthly shuffle to guarantee at least 1 appearance per month.
+// Returns the character id for the given date.
+function pickCharacterForDate(dateStr, candidates) {
+  if (candidates.length === 1) return candidates[0]
+
+  // Only apply monthly shuffle when there are exactly 2 candidates with different weights
+  const primary = candidates.find((c) => c.weight >= 0.5)
+  const rare = candidates.find((c) => c.weight < 0.5)
+  if (!primary || !rare) {
+    // Fallback: simple seed-based pick
+    const seed = hashString(`${dateStr}:char`)
+    return candidates[seed % candidates.length]
+  }
+
+  // Get the year/month from dateStr
+  const [y, m] = dateStr.split('-').map(Number)
+  const thursdays = getThursdays(y, m)
+  if (thursdays.length === 0) return primary
+
+  // Determine how many times the rare character appears this month (90%: 1, 10%: 2)
+  const monthSeed = hashString(`${y}-${String(m).padStart(2, '0')}:suzu-schedule`)
+  const rareCount = Math.min((monthSeed % 10000) / 10000 < 0.9 ? 1 : 2, thursdays.length)
+
+  // Build slots and shuffle
+  const slots = []
+  for (let i = 0; i < rareCount; i++) slots.push(rare.id)
+  for (let i = rareCount; i < thursdays.length; i++) slots.push(primary.id)
+  const shuffled = seededShuffle(slots, monthSeed)
+
+  // Find today's index
+  const todayIndex = thursdays.indexOf(dateStr)
+  if (todayIndex < 0) return primary
+
+  const pickedId = shuffled[todayIndex]
+  return candidates.find((c) => c.id === pickedId) || primary
 }
 
 // Pick today's reward (character + one line variation)
@@ -54,8 +106,7 @@ function pickReward() {
   const candidates = charactersData.filter((c) => c.weekday === weekday)
   if (candidates.length === 0) return null
 
-  const charSeed = hashString(`${dateStr}:char`)
-  const character = pickWeighted(candidates, charSeed)
+  const character = pickCharacterForDate(dateStr, candidates)
 
   const lineSeed = hashString(`${dateStr}:${character.id}:line`)
   const variation = character.lines[lineSeed % character.lines.length]
@@ -639,7 +690,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '木曜日担当「凛華」に、妹の「鈴」との姉妹シーンを追加しました。\n\n木曜の未返信ゼロのタイミングで、たまに2人の掛け合いが見られます。'
+    '未返信ゼロ時のセリフを増やしました。\n\nいろんなパターンを楽しんでみてください。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
