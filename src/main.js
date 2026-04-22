@@ -690,7 +690,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '未返信ゼロ時のセリフを増やしました。\n\nいろんなパターンを楽しんでみてください。'
+    'セリフの表現を見直し、男女どちらのユーザーにも届くよう調整しました。\n\nフィードバックをくれたユーザーのみなさん、ありがとうございます。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
