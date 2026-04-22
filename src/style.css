@@ -212,6 +212,18 @@ body {
   margin-right: 6px;
 }
 
+.chibi-reward__credit {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--outline);
+  text-decoration: underline;
+  text-align: center;
+}
+
+.chibi-reward__credit:active {
+  color: var(--on-surface-variant);
+}
+
 @keyframes fadeIn {
   to { opacity: 1; }
 }

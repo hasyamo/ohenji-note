@@ -3,6 +3,19 @@ import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays
 import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 import charactersData from './rewards/characters.json'
+import collabPeriods from './rewards/collab/periods.json'
+
+// Load all collab character files via glob (keyed by file path)
+const collabModules = import.meta.glob('./rewards/collab/*.json', { eager: true, import: 'default' })
+
+// Build a map: period id -> character array
+function getCollabCharacters(periodId) {
+  for (const [path, data] of Object.entries(collabModules)) {
+    const fileName = path.split('/').pop().replace('.json', '')
+    if (fileName === periodId) return data
+  }
+  return null
+}
 
 // --- Reward selection (unreplied-zero chibi演出) ---
 
@@ -98,11 +111,44 @@ function pickCharacterForDate(dateStr, candidates) {
   return candidates.find((c) => c.id === pickedId) || primary
 }
 
+// Find active collab period for a given date string (YYYY-MM-DD)
+function findActivePeriod(dateStr) {
+  for (const period of collabPeriods) {
+    if (dateStr >= period.start && dateStr <= period.end) return period
+  }
+  return null
+}
+
 // Pick today's reward (character + one line variation)
+// Returns { character, variation, credit } where credit is null for builtin characters
 function pickReward() {
   const weekday = getWeekdayJst()
   const dateStr = getDateStringJst()
 
+  // Check collab period first
+  const period = findActivePeriod(dateStr)
+  if (period) {
+    const collabChars = getCollabCharacters(period.id)
+    if (collabChars && collabChars.length > 0) {
+      // Day-based rotation: d mod n
+      const startDate = new Date(period.start + 'T00:00:00Z')
+      const todayDate = new Date(dateStr + 'T00:00:00Z')
+      const daysSinceStart = Math.floor((todayDate - startDate) / 86400000)
+      const index = daysSinceStart % collabChars.length
+      const character = collabChars[index]
+
+      const lineSeed = hashString(`${dateStr}:${character.name}:line`)
+      const variation = character.lines[lineSeed % character.lines.length]
+
+      return {
+        character: { fileName: character.fileName, isCollab: true },
+        variation,
+        credit: { creator: character.creator, noteURL: character.noteURL },
+      }
+    }
+  }
+
+  // Fallback: builtin characters
   const candidates = charactersData.filter((c) => c.weekday === weekday)
   if (candidates.length === 0) return null
 
@@ -111,7 +157,7 @@ function pickReward() {
   const lineSeed = hashString(`${dateStr}:${character.id}:line`)
   const variation = character.lines[lineSeed % character.lines.length]
 
-  return { character, variation }
+  return { character, variation, credit: null }
 }
 
 // Render a line variation (array of strings) into HTML
@@ -545,14 +591,20 @@ function render() {
   if (!hasVisibleComments && !isRefreshing) {
     const picked = pickReward()
     if (picked) {
-      const { character, variation } = picked
-      const chibiSrc = `${import.meta.env.BASE_URL}icons/chibi/${character.fileName}?v=${__APP_VERSION__}`
+      const { character, variation, credit } = picked
+      const chibiDir = character.isCollab ? 'icons/chibi/collab/' : 'icons/chibi/'
+      const chibiSrc = `${import.meta.env.BASE_URL}${chibiDir}${character.fileName}?v=${__APP_VERSION__}`
+
+      const creditHtml = credit
+        ? `<a class="chibi-reward__credit" href="${escapeHtml(credit.noteURL)}" target="_blank" rel="noopener">by ${escapeHtml(credit.creator)}</a>`
+        : ''
 
       const reward = document.createElement('div')
       reward.className = 'chibi-reward'
       reward.innerHTML = `
         <img src="${chibiSrc}" alt="" />
         <div class="chibi-reward__text">${renderLinesHtml(variation)}</div>
+        ${creditHtml}
       `
       content.appendChild(reward)
     }
