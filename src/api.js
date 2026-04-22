@@ -65,7 +65,7 @@ export async function fetchAllArticles(urlname, rangeDays, onProgress) {
     isLastPage = json.data?.isLastPage ?? true
     page++
 
-    if (!isLastPage) await sleep(500)
+    if (!isLastPage) await sleep(200)
   }
 
   return articles
@@ -80,7 +80,7 @@ export async function fetchComments(noteKey) {
 
   while (true) {
     const json = await proxyFetch(
-      `/api/v3/notes/${encodeURIComponent(noteKey)}/note_comments?per_page=10&page=${page}`
+      `/api/v3/notes/${encodeURIComponent(noteKey)}/note_comments?per_page=100&page=${page}`
     )
 
     const data = json.data || []
@@ -90,7 +90,7 @@ export async function fetchComments(noteKey) {
 
     if (!json.next_page) break
     page++
-    await sleep(300)
+    await sleep(200)
   }
 
   return comments
@@ -110,7 +110,7 @@ export async function fetchAllComments(articles, onProgress) {
     const comments = await fetchComments(article.key)
     result.push({ ...article, comments })
 
-    if (i < articles.length - 1) await sleep(300)
+    if (i < articles.length - 1) await sleep(200)
   }
 
   return result
@@ -193,7 +193,7 @@ export async function fetchUpdatedComments(articles, cachedArticles, onProgress)
       const comments = await fetchComments(article.key)
       result.push({ ...article, comments })
 
-      if (fetchCount < toFetch.length) await sleep(300)
+      if (fetchCount < toFetch.length) await sleep(200)
     }
   }
 

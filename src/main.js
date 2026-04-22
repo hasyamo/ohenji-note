@@ -690,7 +690,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'セリフの表現を見直し、男女どちらのユーザーにも届くよう調整しました。\n\nフィードバックをくれたユーザーのみなさん、ありがとうございます。'
+    '読み込み速度を改善しました。\n\nコメント取得の効率を上げて、待ち時間を短縮しています。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
