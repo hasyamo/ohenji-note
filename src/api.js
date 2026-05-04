@@ -142,12 +142,17 @@ async function fetchCommentsLegacy(noteKey, ownerUrlname) {
     .map((c) => {
       const ts = new Date(c.created_at).getTime()
       const replied = ts < latestOwnerTs
+      const u = c.user || {}
       return {
         key: c.key,
         body: c.comment,
         comment: c.comment,
         created_at: c.created_at,
-        user: c.user,
+        user: {
+          ...u,
+          // Normalize avatar field name to match threaded format
+          profile_image_url: u.profile_image_url || u.user_profile_image_path,
+        },
         is_creator_replied: replied,
         is_creator_liked: !!c.has_content_creator_liked,
         _legacy: true,
