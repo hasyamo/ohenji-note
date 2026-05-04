@@ -71,10 +71,16 @@ export async function fetchAllArticles(urlname, rangeDays, onProgress) {
   return articles
 }
 
-/**
- * Fetch comments for a single note, paginating.
- */
-export async function fetchComments(noteKey) {
+// 2025-09-08 10:00 JST: note.com switched to threaded comments.
+// Articles published before this use the legacy flat comments endpoint.
+const COMMENT_FORMAT_SWITCH = '2025-09-08T10:00:00+09:00'
+
+function isLegacyArticle(publishedAt) {
+  return new Date(publishedAt).getTime() < new Date(COMMENT_FORMAT_SWITCH).getTime()
+}
+
+// New format: /api/v3/notes/{key}/note_comments
+async function fetchCommentsThreaded(noteKey) {
   const comments = []
   let page = 1
 
@@ -96,18 +102,85 @@ export async function fetchComments(noteKey) {
   return comments
 }
 
+// Legacy format: /api/v3/notes/{key}/comments
+// Normalize to threaded shape (comment, is_creator_replied, is_creator_liked, user, key)
+// Replied judgement: creator's own comment exists AND no later comment from others.
+async function fetchCommentsLegacy(noteKey, ownerUrlname) {
+  const raw = []
+  let page = 1
+
+  while (true) {
+    const json = await proxyFetch(
+      `/api/v3/notes/${encodeURIComponent(noteKey)}/comments?per_page=100&page=${page}`
+    )
+    const data = json.data || []
+    if (data.length === 0) break
+    raw.push(...data)
+    if (!json.next_page) break
+    page++
+    await sleep(200)
+  }
+
+  // Sort ascending by created_at to derive temporal "any later non-owner comment"
+  raw.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+
+  // Find the latest creator (owner) comment timestamp
+  let latestOwnerTs = -Infinity
+  for (const c of raw) {
+    if (c.user?.urlname === ownerUrlname) {
+      const ts = new Date(c.created_at).getTime()
+      if (ts > latestOwnerTs) latestOwnerTs = ts
+    }
+  }
+
+  // For each non-owner comment: replied if owner has commented after it
+  // Otherwise unreplied. liked is taken from has_content_creator_liked.
+  // We only return non-owner comments (own comments are filtered later in main.js too,
+  // but here we also exclude them since we already used them for the timeline).
+  const normalized = raw
+    .filter((c) => c.user?.urlname !== ownerUrlname)
+    .map((c) => {
+      const ts = new Date(c.created_at).getTime()
+      const replied = ts < latestOwnerTs
+      return {
+        key: c.key,
+        body: c.comment,
+        comment: c.comment,
+        created_at: c.created_at,
+        user: c.user,
+        is_creator_replied: replied,
+        is_creator_liked: !!c.has_content_creator_liked,
+        _legacy: true,
+      }
+    })
+
+  return normalized
+}
+
+/**
+ * Fetch comments for a single note. Picks endpoint based on publishedAt.
+ * If `legacyVisible` is false, returns [] for legacy articles.
+ */
+export async function fetchComments(noteKey, publishedAt, ownerUrlname, legacyVisible = true) {
+  if (publishedAt && isLegacyArticle(publishedAt)) {
+    if (!legacyVisible) return []
+    return fetchCommentsLegacy(noteKey, ownerUrlname)
+  }
+  return fetchCommentsThreaded(noteKey)
+}
+
 /**
  * Fetch comments for all articles sequentially.
  * Returns articles enriched with their comments.
  */
-export async function fetchAllComments(articles, onProgress) {
+export async function fetchAllComments(articles, ownerUrlname, legacyVisible, onProgress) {
   const result = []
 
   for (let i = 0; i < articles.length; i++) {
     const article = articles[i]
     if (onProgress) onProgress(`コメント取得中... (${i + 1}/${articles.length}) ${article.title}`)
 
-    const comments = await fetchComments(article.key)
+    const comments = await fetchComments(article.key, article.publishedAt, ownerUrlname, legacyVisible)
     result.push({ ...article, comments })
 
     if (i < articles.length - 1) await sleep(200)
@@ -163,7 +236,7 @@ export async function optInRing(urlname) {
  * Fetch comments with cache diff.
  * Only fetches comments for articles whose commentCount changed.
  */
-export async function fetchUpdatedComments(articles, cachedArticles, onProgress) {
+export async function fetchUpdatedComments(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress) {
   const cacheMap = new Map()
   if (cachedArticles) {
     for (const a of cachedArticles) {
@@ -190,7 +263,7 @@ export async function fetchUpdatedComments(articles, cachedArticles, onProgress)
       fetchCount++
       if (onProgress) onProgress(`コメント取得中... (${fetchCount}/${toFetch.length}) ${article.title}`)
 
-      const comments = await fetchComments(article.key)
+      const comments = await fetchComments(article.key, article.publishedAt, ownerUrlname, legacyVisible)
       result.push({ ...article, comments })
 
       if (fetchCount < toFetch.length) await sleep(200)

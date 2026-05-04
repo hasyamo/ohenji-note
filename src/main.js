@@ -1,5 +1,5 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible } from './storage.js'
+import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 import charactersData from './rewards/characters.json'
@@ -220,12 +220,14 @@ function renderMutedUsers() {
 }
 
 const ringVisibleToggle = $('ringVisibleToggle')
+const legacyCommentsToggle = $('legacyCommentsToggle')
 
 $('settingsBtn').addEventListener('click', () => {
   urlnameInput.value = getUrlname()
   rangeSelect.value = String(getRangeDays())
   renderMutedUsers()
   ringVisibleToggle.checked = getRingVisible()
+  legacyCommentsToggle.checked = getLegacyCommentsVisible()
   openModal(settingsModal)
 })
 
@@ -252,6 +254,13 @@ saveBtn.addEventListener('click', async () => {
       await optOutRing(urlname).catch(() => {})
     } else if (!wasRingVisible && newRingVisible) {
       await optInRing(urlname).catch(() => {})
+    }
+    // Legacy comments toggle: clear cache when changed to force refetch
+    const newLegacyVisible = legacyCommentsToggle.checked
+    const wasLegacyVisible = getLegacyCommentsVisible()
+    setLegacyCommentsVisible(newLegacyVisible)
+    if (newLegacyVisible !== wasLegacyVisible) {
+      saveCache(urlname, [])
     }
     closeModal(settingsModal)
     refresh()
@@ -311,7 +320,8 @@ async function refresh() {
       loadingText.textContent = msg
     })
 
-    const enriched = await fetchUpdatedComments(articles, cachedArticles, (msg) => {
+    const legacyVisible = getLegacyCommentsVisible()
+    const enriched = await fetchUpdatedComments(articles, cachedArticles, urlname, legacyVisible, (msg) => {
       loadingText.textContent = msg
     })
 
@@ -690,7 +700,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '読み込み速度を改善しました。\n\nコメント取得の効率を上げて、待ち時間を短縮しています。'
+    '2025年9月以前の記事のコメントにも対応しました。\n\nこれまで取得できていなかった古いコメントが表示されます。\n未返信件数が大幅に増える可能性があるため、不要な方は設定からOFFにできます。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)

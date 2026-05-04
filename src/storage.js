@@ -46,6 +46,17 @@ export function setRingVisible(visible) {
   localStorage.setItem(RING_VISIBLE_KEY, visible ? 'true' : 'false')
 }
 
+// Legacy (pre-2025-09-08) comments visibility setting (default true)
+const LEGACY_COMMENTS_VISIBLE_KEY = 'ncm_legacy_comments_visible'
+
+export function getLegacyCommentsVisible() {
+  return localStorage.getItem(LEGACY_COMMENTS_VISIBLE_KEY) !== 'false'
+}
+
+export function setLegacyCommentsVisible(visible) {
+  localStorage.setItem(LEGACY_COMMENTS_VISIBLE_KEY, visible ? 'true' : 'false')
+}
+
 // Muted users — stored as [{urlname, nickname}]
 const MUTED_KEY = 'ncm_muted_users'
 
