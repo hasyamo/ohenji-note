@@ -57,6 +57,18 @@ export function setLegacyCommentsVisible(visible) {
   localStorage.setItem(LEGACY_COMMENTS_VISIBLE_KEY, visible ? 'true' : 'false')
 }
 
+// View mode: 'articles' (group by article) or 'comments' (flat by comment date)
+const VIEW_MODE_KEY = 'ncm_view_mode'
+
+export function getViewMode() {
+  const v = localStorage.getItem(VIEW_MODE_KEY)
+  return v === 'comments' ? 'comments' : 'articles'
+}
+
+export function setViewMode(mode) {
+  localStorage.setItem(VIEW_MODE_KEY, mode === 'comments' ? 'comments' : 'articles')
+}
+
 // Muted users — stored as [{urlname, nickname}]
 const MUTED_KEY = 'ncm_muted_users'
 
