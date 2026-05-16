@@ -3,6 +3,19 @@ import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays
 import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 import charactersData from './rewards/characters.json'
+import collabPeriods from './rewards/collab/periods.json'
+
+// Load all collab character files via glob (keyed by file path)
+const collabModules = import.meta.glob('./rewards/collab/*.json', { eager: true, import: 'default' })
+
+// Build a map: period id -> character array
+function getCollabCharacters(periodId) {
+  for (const [path, data] of Object.entries(collabModules)) {
+    const fileName = path.split('/').pop().replace('.json', '')
+    if (fileName === periodId) return data
+  }
+  return null
+}
 
 // --- Reward selection (unreplied-zero chibi演出) ---
 
@@ -98,11 +111,86 @@ function pickCharacterForDate(dateStr, candidates) {
   return candidates.find((c) => c.id === pickedId) || primary
 }
 
+// Find active collab period for a given date string (YYYY-MM-DD)
+function findActivePeriod(dateStr) {
+  for (const period of collabPeriods) {
+    if (dateStr >= period.start && dateStr <= period.end) return period
+  }
+  return null
+}
+
+// Group flat character list into per-creator buckets while preserving order.
+function groupByCreator(chars) {
+  const order = []
+  const buckets = new Map()
+  for (const c of chars) {
+    const key = c.creator
+    if (!buckets.has(key)) {
+      buckets.set(key, [])
+      order.push(key)
+    }
+    buckets.get(key).push(c)
+  }
+  return order.map((k) => buckets.get(k))
+}
+
+// 2-stage rotation:
+//   1. creatorIndex = daysSinceStart % creators.length  → pick creator bucket
+//   2. characterIndex = (creator-appearance count so far) % bucket.length  → pick char
+//   3. lineIndex = (character-appearance count so far) % lines.length  → pick line (deterministic, cycles)
+function pickCollabReward(period, collabChars, dateStr) {
+  const startDate = new Date(period.start + 'T00:00:00Z')
+  const todayDate = new Date(dateStr + 'T00:00:00Z')
+  const daysSinceStart = Math.floor((todayDate - startDate) / 86400000)
+  if (daysSinceStart < 0) return null
+
+  const creatorBuckets = groupByCreator(collabChars)
+  if (creatorBuckets.length === 0) return null
+
+  const creatorIndex = daysSinceStart % creatorBuckets.length
+  const bucket = creatorBuckets[creatorIndex]
+
+  // How many times has this creator's bucket been picked up to today (inclusive)?
+  // Equivalent to floor(daysSinceStart / creators.length) + 1, then -1 to get 0-indexed.
+  const creatorAppearances = Math.floor(daysSinceStart / creatorBuckets.length)
+  const characterIndex = creatorAppearances % bucket.length
+  const character = bucket[characterIndex]
+
+  // Character appearances so far (0-indexed): how many times this character has been picked.
+  // Within a creator bucket, the same character is picked every bucket.length times the creator is picked,
+  // i.e. once every (creatorBuckets.length * bucket.length) days, starting from
+  // dayOffset = creatorIndex + characterIndex * creatorBuckets.length.
+  const cycleLen = creatorBuckets.length * bucket.length
+  const charAppearances = Math.floor(daysSinceStart / cycleLen)
+
+  const lineIndex = charAppearances % character.lines.length
+  const variation = character.lines[lineIndex]
+
+  return {
+    character: { fileName: character.fileName, name: character.name, isCollab: true },
+    variation,
+    credit: { creator: character.creator, noteURL: character.noteURL },
+    periodId: period.id,
+  }
+}
+
 // Pick today's reward (character + one line variation)
+// Returns { character, variation, credit } where credit is null for builtin characters
 function pickReward() {
   const weekday = getWeekdayJst()
   const dateStr = getDateStringJst()
 
+  // Check collab period first
+  const period = findActivePeriod(dateStr)
+  if (period) {
+    const collabChars = getCollabCharacters(period.id)
+    if (collabChars && collabChars.length > 0) {
+      const result = pickCollabReward(period, collabChars, dateStr)
+      if (result) return result
+    }
+  }
+
+  // Fallback: builtin characters
   const candidates = charactersData.filter((c) => c.weekday === weekday)
   if (candidates.length === 0) return null
 
@@ -111,7 +199,33 @@ function pickReward() {
   const lineSeed = hashString(`${dateStr}:${character.id}:line`)
   const variation = character.lines[lineSeed % character.lines.length]
 
-  return { character, variation }
+  return { character, variation, credit: null }
+}
+
+// --- Collab analytics ---
+
+const COLLAB_EVENT_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/api/ohenjicho/collab_event'
+
+// Fire-and-forget: send a small JSON payload.
+// Uses text/plain to avoid CORS preflight (simple request).
+function trackCollabEvent(payload) {
+  try {
+    const data = JSON.stringify(payload)
+    if (navigator.sendBeacon) {
+      const blob = new Blob([data], { type: 'text/plain' })
+      navigator.sendBeacon(COLLAB_EVENT_URL, blob)
+      return
+    }
+    fetch(COLLAB_EVENT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: data,
+      credentials: 'omit',
+      keepalive: true,
+    }).catch(() => {})
+  } catch {
+    // Never fail the UI because of analytics
+  }
 }
 
 // Render a line variation (array of strings) into HTML
@@ -391,6 +505,9 @@ function processComments(articles, urlname) {
 // --- Render ---
 
 function render() {
+  // Debug: ?reward=1 forces the reward to be displayed regardless of unreplied count
+  const forceReward = new URLSearchParams(location.search).get('reward') === '1'
+
   // Summary
   const totalUnreplied = articlesWithComments.reduce((sum, a) => sum + a.unrepliedCount, 0)
   const totalComments = articlesWithComments.reduce((sum, a) => sum + a.comments.length, 0)
@@ -425,6 +542,20 @@ function render() {
     viewModeBtn.textContent = viewMode === 'articles' ? '記事順' : 'コメント順'
   } else {
     summaryBar.hidden = true
+  }
+
+  // Collab banner: visible while an active collab period is running
+  const collabBanner = $('collabBanner')
+  const activePeriod = findActivePeriod(getDateStringJst())
+  if (activePeriod) {
+    const fmt = (s) => {
+      const [, m, d] = s.split('-').map(Number)
+      return `${m}/${d}`
+    }
+    collabBanner.textContent = `おへんじ帖 ${activePeriod.name} ✨ ${fmt(activePeriod.start)} - ${fmt(activePeriod.end)}`
+    collabBanner.hidden = false
+  } else {
+    collabBanner.hidden = true
   }
 
   // Content
@@ -532,77 +663,118 @@ function render() {
   // Check if all visible comments are replied
   let hasVisibleComments = false
 
-  if (viewMode === 'comments') {
-    // Flat by comment date
-    const flat = []
-    for (const article of articlesWithComments) {
-      const visibleComments = showReplied
-        ? article.comments
-        : article.comments.filter((c) => c.status !== 'replied')
-      for (const c of visibleComments) {
-        flat.push({ comment: c, article })
+  // Debug: ?reward=1 → skip rendering the list entirely (force-show reward only)
+  if (!forceReward) {
+    if (viewMode === 'comments') {
+      // Flat by comment date
+      const flat = []
+      for (const article of articlesWithComments) {
+        const visibleComments = showReplied
+          ? article.comments
+          : article.comments.filter((c) => c.status !== 'replied')
+        for (const c of visibleComments) {
+          flat.push({ comment: c, article })
+        }
       }
-    }
-    flat.sort((a, b) => new Date(b.comment.created_at) - new Date(a.comment.created_at))
+      flat.sort((a, b) => new Date(b.comment.created_at) - new Date(a.comment.created_at))
 
-    if (flat.length > 0) {
-      hasVisibleComments = true
-      const section = document.createElement('div')
-      section.className = 'article-section'
-      for (const { comment, article } of flat) {
-        section.appendChild(createCommentCard(comment, article, true))
+      if (flat.length > 0) {
+        hasVisibleComments = true
+        const section = document.createElement('div')
+        section.className = 'article-section'
+        for (const { comment, article } of flat) {
+          section.appendChild(createCommentCard(comment, article, true))
+        }
+        content.appendChild(section)
       }
-      content.appendChild(section)
-    }
-  } else {
-    // Group by article (default)
-    for (const article of articlesWithComments) {
-      const visibleComments = showReplied
-        ? article.comments
-        : article.comments.filter((c) => c.status !== 'replied')
+    } else {
+      // Group by article (default)
+      for (const article of articlesWithComments) {
+        const visibleComments = showReplied
+          ? article.comments
+          : article.comments.filter((c) => c.status !== 'replied')
 
-      if (visibleComments.length === 0) continue
-      hasVisibleComments = true
+        if (visibleComments.length === 0) continue
+        hasVisibleComments = true
 
-      const section = document.createElement('div')
-      section.className = 'article-section'
+        const section = document.createElement('div')
+        section.className = 'article-section'
 
-      const header = document.createElement('div')
-      header.className = 'article-header'
+        const header = document.createElement('div')
+        header.className = 'article-header'
 
-      const countClass = article.unrepliedCount > 0 ? 'article-count--unreplied' : 'article-count--all-done'
-      const countLabel = article.unrepliedCount > 0
-        ? `${article.unrepliedCount}件未返信`
-        : '返信済み'
+        const countClass = article.unrepliedCount > 0 ? 'article-count--unreplied' : 'article-count--all-done'
+        const countLabel = article.unrepliedCount > 0
+          ? `${article.unrepliedCount}件未返信`
+          : '返信済み'
 
-      header.innerHTML = `
-        <span class="article-title">${escapeHtml(article.title)}</span>
-        <span class="article-count ${countClass}">${countLabel}</span>
-      `
-      section.appendChild(header)
+        header.innerHTML = `
+          <span class="article-title">${escapeHtml(article.title)}</span>
+          <span class="article-count ${countClass}">${countLabel}</span>
+        `
+        section.appendChild(header)
 
-      for (const comment of visibleComments) {
-        section.appendChild(createCommentCard(comment, article, false))
+        for (const comment of visibleComments) {
+          section.appendChild(createCommentCard(comment, article, false))
+        }
+
+        content.appendChild(section)
       }
-
-      content.appendChild(section)
     }
   }
 
   // Show chibi reward when all replied (not during refresh)
-  if (!hasVisibleComments && !isRefreshing) {
+  if ((!hasVisibleComments || forceReward) && !isRefreshing) {
     const picked = pickReward()
     if (picked) {
-      const { character, variation } = picked
-      const chibiSrc = `${import.meta.env.BASE_URL}icons/chibi/${character.fileName}?v=${__APP_VERSION__}`
+      const { character, variation, credit, periodId } = picked
+      const chibiDir = character.isCollab ? 'icons/chibi/collab/' : 'icons/chibi/'
+      const chibiSrc = `${import.meta.env.BASE_URL}${chibiDir}${character.fileName}?v=${__APP_VERSION__}`
+
+      const creditHtml = credit
+        ? `<a class="chibi-reward__credit" href="${escapeHtml(credit.noteURL)}" target="_blank" rel="noopener">by ${escapeHtml(credit.creator)}｜noteへ</a>`
+        : ''
 
       const reward = document.createElement('div')
       reward.className = 'chibi-reward'
       reward.innerHTML = `
         <img src="${chibiSrc}" alt="" />
         <div class="chibi-reward__text">${renderLinesHtml(variation)}</div>
+        ${creditHtml}
       `
       content.appendChild(reward)
+
+      // Analytics: collab view event (dedupe per day per character via sessionStorage)
+      if (character.isCollab && credit && periodId) {
+        const dateStr = getDateStringJst()
+        const dedupeKey = `ncm_collab_view:${periodId}:${dateStr}:${credit.creator}:${character.name || ''}`
+        if (!sessionStorage.getItem(dedupeKey)) {
+          sessionStorage.setItem(dedupeKey, '1')
+          trackCollabEvent({
+            event: 'view',
+            periodId,
+            creator: credit.creator,
+            character: character.name || '',
+            date: dateStr,
+          })
+        }
+      }
+
+      // Analytics: collab credit click event (separate from comment-card tap)
+      if (character.isCollab && credit && periodId) {
+        const creditEl = reward.querySelector('.chibi-reward__credit')
+        if (creditEl) {
+          creditEl.addEventListener('click', () => {
+            trackCollabEvent({
+              event: 'click',
+              periodId,
+              creator: credit.creator,
+              character: character.name || '',
+              date: getDateStringJst(),
+            })
+          })
+        }
+      }
     }
   }
 }
@@ -738,7 +910,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'コメント一覧の並び順を切り替えられるようになりました。\n\nサマリーバー右側の「記事順」「コメント順」ボタンで切替できます。\nコメント順は最新コメントから順に確認したいときに便利です。'
+    'コラボ第1弾、開催です。\n\n5/18 〜 5/27 の10日間、3名のクリエイターのキャラが日替わりで登場します。\n未返信ゼロを達成した日のお楽しみに。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)

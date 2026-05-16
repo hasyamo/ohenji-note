@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "falling-mouse-736b",
+  "main": "src/index.js",
+  "compatibility_date": "2026-05-16",
+  "observability": {
+    "enabled": true
+  },
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "ca0dda78587b48958d271ab995529be0",
+      "preview_id": "85b3baed2318491b943507a018e07dc1"
+    }
+  ]
+}

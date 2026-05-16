@@ -19,7 +19,7 @@ const ALLOWED_PATHS = [
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
@@ -46,6 +46,17 @@ export default {
 
     if (url.pathname === '/api/ohenjicho/cleanup' && request.method === 'GET') {
       return handleCleanup(env)
+    }
+
+    // --- コラボ計測 ---
+    if (url.pathname === '/api/ohenjicho/collab_event' && request.method === 'POST') {
+      return handleCollabEvent(request, env)
+    }
+    if (url.pathname === '/api/ohenjicho/collab_stats' && request.method === 'GET') {
+      return handleCollabStats(env, url)
+    }
+    if (url.pathname === '/api/ohenjicho/collab_reset' && request.method === 'POST') {
+      return handleCollabReset(env, url)
     }
 
     const ringMatch = url.pathname.match(/^\/api\/ohenjicho\/users\/(.+)$/)
@@ -293,3 +304,128 @@ async function handleOptOut(urlname, env) {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
 }
+
+// --- コラボ計測 ---
+
+// Sanitize a field for use in a KV key. Allows safe chars; strips others.
+function sanitizeKeyPart(s) {
+  if (typeof s !== 'string') return ''
+  return s.replace(/[^a-zA-Z0-9_\-぀-ヿ一-龯]/g, '_').slice(0, 64)
+}
+
+async function handleCollabEvent(request, env) {
+  if (!env.KV) {
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const event = sanitizeKeyPart(body.event)
+  const periodId = sanitizeKeyPart(body.periodId)
+  const creator = sanitizeKeyPart(body.creator)
+  const character = sanitizeKeyPart(body.character)
+  const date = sanitizeKeyPart(body.date)
+
+  if (!event || !periodId || !creator) {
+    return new Response(JSON.stringify({ error: 'Missing fields' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  // Append-only log. Each event is a unique KV key so concurrent writes never collide.
+  // Key shape: collab:log:{periodId}:{timestamp}-{random}
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  const logKey = `collab:log:${periodId}:${id}`
+  await env.KV.put(
+    logKey,
+    JSON.stringify({ event, periodId, creator, character, date })
+  )
+
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+// Aggregate log entries on read. Returns counts grouped by event/creator/character.
+async function handleCollabStats(env, url) {
+  if (!env.KV) {
+    return new Response(JSON.stringify({ stats: {}, totals: {} }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const periodId = url.searchParams.get('periodId')
+  const prefix = periodId
+    ? `collab:log:${sanitizeKeyPart(periodId)}:`
+    : 'collab:log:'
+
+  // Paginate through all keys, then fetch values in parallel batches.
+  const allKeys = []
+  let cursor = undefined
+  do {
+    const page = await env.KV.list({ prefix, cursor })
+    allKeys.push(...page.keys.map((k) => k.name))
+    cursor = page.list_complete ? undefined : page.cursor
+  } while (cursor)
+
+  const totals = {} // { period: { event: { creator: { 'all': n, characters: { name: n } } } } }
+  const events = {} // flat: { 'event:creator': n, 'event:creator:character': n }
+
+  // Fetch in chunks of 50 to avoid hot loops
+  for (let i = 0; i < allKeys.length; i += 50) {
+    const chunk = allKeys.slice(i, i + 50)
+    const vals = await Promise.all(chunk.map((k) => env.KV.get(k, 'json')))
+    for (const v of vals) {
+      if (!v) continue
+      const { event, creator, character } = v
+      const k1 = `${event}:creator:${creator}`
+      events[k1] = (events[k1] || 0) + 1
+      if (character) {
+        const k2 = `${event}:character:${creator}:${character}`
+        events[k2] = (events[k2] || 0) + 1
+      }
+    }
+  }
+
+  return new Response(JSON.stringify({ stats: events, total: allKeys.length }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+// Delete log entries. With ?periodId=xxx, scope is limited to that period.
+// Without it, deletes ALL collab:log:* keys (use with caution).
+async function handleCollabReset(env, url) {
+  if (!env.KV) {
+    return new Response(JSON.stringify({ deleted: 0 }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const periodId = url.searchParams.get('periodId')
+  const prefix = periodId
+    ? `collab:log:${sanitizeKeyPart(periodId)}:`
+    : 'collab:log:'
+
+  const list = await env.KV.list({ prefix })
+  let deleted = 0
+  for (const key of list.keys) {
+    await env.KV.delete(key.name)
+    deleted++
+  }
+
+  return new Response(JSON.stringify({ deleted, prefix }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
