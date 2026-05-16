@@ -1,5 +1,5 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible } from './storage.js'
+import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 import charactersData from './rewards/characters.json'
@@ -194,6 +194,7 @@ let articlesWithComments = []
 let isRefreshing = false
 let pendingComment = null // {commentKey, articleKey, commentBody}
 let showReplied = false
+let viewMode = getViewMode() // 'articles' or 'comments'
 
 // --- Modal helpers ---
 
@@ -266,12 +267,14 @@ function renderMutedUsers() {
 }
 
 const ringVisibleToggle = $('ringVisibleToggle')
+const legacyCommentsToggle = $('legacyCommentsToggle')
 
 $('settingsBtn').addEventListener('click', () => {
   urlnameInput.value = getUrlname()
   rangeSelect.value = String(getRangeDays())
   renderMutedUsers()
   ringVisibleToggle.checked = getRingVisible()
+  legacyCommentsToggle.checked = getLegacyCommentsVisible()
   openModal(settingsModal)
 })
 
@@ -299,6 +302,13 @@ saveBtn.addEventListener('click', async () => {
     } else if (!wasRingVisible && newRingVisible) {
       await optInRing(urlname).catch(() => {})
     }
+    // Legacy comments toggle: clear cache when changed to force refetch
+    const newLegacyVisible = legacyCommentsToggle.checked
+    const wasLegacyVisible = getLegacyCommentsVisible()
+    setLegacyCommentsVisible(newLegacyVisible)
+    if (newLegacyVisible !== wasLegacyVisible) {
+      saveCache(urlname, [])
+    }
     closeModal(settingsModal)
     refresh()
   } catch (err) {
@@ -316,6 +326,14 @@ saveBtn.addEventListener('click', async () => {
 
 $('toggleRepliedBtn').addEventListener('click', () => {
   showReplied = !showReplied
+  render()
+})
+
+// --- View mode toggle ---
+
+$('viewModeBtn').addEventListener('click', () => {
+  viewMode = viewMode === 'articles' ? 'comments' : 'articles'
+  setViewMode(viewMode)
   render()
 })
 
@@ -357,7 +375,8 @@ async function refresh() {
       loadingText.textContent = msg
     })
 
-    const enriched = await fetchUpdatedComments(articles, cachedArticles, (msg) => {
+    const legacyVisible = getLegacyCommentsVisible()
+    const enriched = await fetchUpdatedComments(articles, cachedArticles, urlname, legacyVisible, (msg) => {
       loadingText.textContent = msg
     })
 
@@ -448,6 +467,8 @@ function render() {
     }
     toggleBtn.textContent = showReplied ? '未返信のみ' : `返信済み ${totalReplied}件`
     toggleBtn.hidden = totalReplied === 0
+    const viewModeBtn = $('viewModeBtn')
+    viewModeBtn.textContent = viewMode === 'articles' ? '記事順' : 'コメント順'
   } else {
     summaryBar.hidden = true
   }
@@ -463,111 +484,53 @@ function render() {
 
   content.innerHTML = ''
 
-  // Check if all visible comments are replied
-  let hasVisibleComments = false
+  // Helper to create a comment card element
+  function createCommentCard(comment, article, includeArticleTitle) {
+    const card = document.createElement('div')
+    card.className = 'comment-card'
 
-  for (const article of articlesWithComments) {
-    // Filter comments based on toggle
-    const visibleComments = showReplied
-      ? article.comments
-      : article.comments.filter((c) => c.status !== 'replied')
+    const statusLabel = {
+      unreplied: '未返信',
+      liked: 'いいね済',
+      replied: '返信済',
+    }[comment.status]
 
-    // Skip article if no visible comments
-    if (visibleComments.length === 0) continue
-    hasVisibleComments = true
+    const statusClass = `status-badge--${comment.status}`
 
-    const section = document.createElement('div')
-    section.className = 'article-section'
+    const avatarUrl = comment.user?.profile_image_url
+    const avatarContent = avatarUrl
+      ? `<img src="${encodeURI(avatarUrl)}" alt="" />`
+      : '👤'
 
-    // Article header
-    const header = document.createElement('div')
-    header.className = 'article-header'
+    const bodyText = parseComment(comment.body || comment.comment || '')
 
-    const countClass = article.unrepliedCount > 0 ? 'article-count--unreplied' : 'article-count--all-done'
-    const countLabel = article.unrepliedCount > 0
-      ? `${article.unrepliedCount}件未返信`
-      : '返信済み'
+    const articleTitleHtml = includeArticleTitle
+      ? `<div class="comment-article-title">${escapeHtml(article.title)}</div>`
+      : ''
 
-    header.innerHTML = `
-      <span class="article-title">${escapeHtml(article.title)}</span>
-      <span class="article-count ${countClass}">${countLabel}</span>
+    card.innerHTML = `
+      <div class="comment-avatar">${avatarContent}</div>
+      <div class="comment-body">
+        ${articleTitleHtml}
+        <div class="comment-meta">
+          <span class="comment-author">${escapeHtml(comment.user?.nickname || comment.user?.urlname || '匿名')}</span>
+          <span class="comment-time">${relativeTime(comment.created_at)}</span>
+        </div>
+        <p class="comment-text">${escapeHtml(bodyText)}</p>
+      </div>
+      <div class="comment-status">
+        <span class="status-badge ${statusClass}">${statusLabel}</span>
+      </div>
     `
-    section.appendChild(header)
 
-    // Comment cards
-    for (const comment of visibleComments) {
-      const card = document.createElement('div')
-      card.className = 'comment-card'
+    let longPressTimer = null
+    let isLongPress = false
 
-      const statusLabel = {
-        unreplied: '未返信',
-        liked: 'いいね済',
-        replied: '返信済',
-      }[comment.status]
-
-      const statusClass = `status-badge--${comment.status}`
-
-      const avatarUrl = comment.user?.profile_image_url
-      const avatarContent = avatarUrl
-        ? `<img src="${encodeURI(avatarUrl)}" alt="" />`
-        : '👤'
-
-      const bodyText = parseComment(comment.body || comment.comment || '')
-
-      card.innerHTML = `
-        <div class="comment-avatar">${avatarContent}</div>
-        <div class="comment-body">
-          <div class="comment-meta">
-            <span class="comment-author">${escapeHtml(comment.user?.nickname || comment.user?.urlname || '匿名')}</span>
-            <span class="comment-time">${relativeTime(comment.created_at)}</span>
-          </div>
-          <p class="comment-text">${escapeHtml(bodyText)}</p>
-        </div>
-        <div class="comment-status">
-          <span class="status-badge ${statusClass}">${statusLabel}</span>
-        </div>
-      `
-
-      // Long press → mark as replied
-      let longPressTimer = null
-      let isLongPress = false
-
-      function startLongPress() {
-        isLongPress = false
-        longPressTimer = setTimeout(() => {
-          isLongPress = true
-          if (comment.status !== 'replied') {
-            const bodyText = parseComment(comment.body || comment.comment || '')
-            pendingComment = {
-              commentKey: comment.key,
-              articleKey: article.key,
-              commentBody: bodyText,
-              userUrlname: comment.user?.urlname,
-              userNickname: comment.user?.nickname || comment.user?.urlname || '匿名',
-            }
-            openModal(replyModal)
-            replyTarget.textContent = bodyText
-            muteUserBtn.textContent = `${pendingComment.userNickname} を非表示`
-          }
-        }, 500)
-      }
-
-      function cancelLongPress() {
-        clearTimeout(longPressTimer)
-      }
-
-      card.addEventListener('touchstart', startLongPress, { passive: true })
-      card.addEventListener('touchend', cancelLongPress)
-      card.addEventListener('touchmove', cancelLongPress)
-      card.addEventListener('mousedown', startLongPress)
-      card.addEventListener('mouseup', cancelLongPress)
-      card.addEventListener('mouseleave', cancelLongPress)
-
-      // Tap → open note.com
-      card.addEventListener('click', (e) => {
-        if (isLongPress) return
-        if (comment.status === 'unreplied' || comment.status === 'liked') {
-          const bodyText = parseComment(comment.body || comment.comment || '')
+    function startLongPress() {
+      isLongPress = false
+      longPressTimer = setTimeout(() => {
+        isLongPress = true
+        if (comment.status !== 'replied') {
           pendingComment = {
             commentKey: comment.key,
             articleKey: article.key,
@@ -575,16 +538,101 @@ function render() {
             userUrlname: comment.user?.urlname,
             userNickname: comment.user?.nickname || comment.user?.urlname || '匿名',
           }
-          sessionStorage.setItem('ncm_pending', JSON.stringify(pendingComment))
+          openModal(replyModal)
+          replyTarget.textContent = bodyText
+          muteUserBtn.textContent = `${pendingComment.userNickname} を非表示`
         }
-        const noteUrl = `https://note.com/${encodeURIComponent(article.urlname)}/n/${encodeURIComponent(article.key)}?scrollpos=comment&c=${encodeURIComponent(comment.key)}`
-        window.open(noteUrl, '_blank')
-      })
-
-      section.appendChild(card)
+      }, 500)
     }
 
-    content.appendChild(section)
+    function cancelLongPress() {
+      clearTimeout(longPressTimer)
+    }
+
+    card.addEventListener('touchstart', startLongPress, { passive: true })
+    card.addEventListener('touchend', cancelLongPress)
+    card.addEventListener('touchmove', cancelLongPress)
+    card.addEventListener('mousedown', startLongPress)
+    card.addEventListener('mouseup', cancelLongPress)
+    card.addEventListener('mouseleave', cancelLongPress)
+
+    card.addEventListener('click', (e) => {
+      if (isLongPress) return
+      if (comment.status === 'unreplied' || comment.status === 'liked') {
+        pendingComment = {
+          commentKey: comment.key,
+          articleKey: article.key,
+          commentBody: bodyText,
+          userUrlname: comment.user?.urlname,
+          userNickname: comment.user?.nickname || comment.user?.urlname || '匿名',
+        }
+        sessionStorage.setItem('ncm_pending', JSON.stringify(pendingComment))
+      }
+      const noteUrl = `https://note.com/${encodeURIComponent(article.urlname)}/n/${encodeURIComponent(article.key)}?scrollpos=comment&c=${encodeURIComponent(comment.key)}`
+      window.open(noteUrl, '_blank')
+    })
+
+    return card
+  }
+
+  // Check if all visible comments are replied
+  let hasVisibleComments = false
+
+  if (viewMode === 'comments') {
+    // Flat by comment date
+    const flat = []
+    for (const article of articlesWithComments) {
+      const visibleComments = showReplied
+        ? article.comments
+        : article.comments.filter((c) => c.status !== 'replied')
+      for (const c of visibleComments) {
+        flat.push({ comment: c, article })
+      }
+    }
+    flat.sort((a, b) => new Date(b.comment.created_at) - new Date(a.comment.created_at))
+
+    if (flat.length > 0) {
+      hasVisibleComments = true
+      const section = document.createElement('div')
+      section.className = 'article-section'
+      for (const { comment, article } of flat) {
+        section.appendChild(createCommentCard(comment, article, true))
+      }
+      content.appendChild(section)
+    }
+  } else {
+    // Group by article (default)
+    for (const article of articlesWithComments) {
+      const visibleComments = showReplied
+        ? article.comments
+        : article.comments.filter((c) => c.status !== 'replied')
+
+      if (visibleComments.length === 0) continue
+      hasVisibleComments = true
+
+      const section = document.createElement('div')
+      section.className = 'article-section'
+
+      const header = document.createElement('div')
+      header.className = 'article-header'
+
+      const countClass = article.unrepliedCount > 0 ? 'article-count--unreplied' : 'article-count--all-done'
+      const countLabel = article.unrepliedCount > 0
+        ? `${article.unrepliedCount}件未返信`
+        : '返信済み'
+
+      header.innerHTML = `
+        <span class="article-title">${escapeHtml(article.title)}</span>
+        <span class="article-count ${countClass}">${countLabel}</span>
+      `
+      section.appendChild(header)
+
+      for (const comment of visibleComments) {
+        section.appendChild(createCommentCard(comment, article, false))
+      }
+
+      content.appendChild(section)
+    }
   }
 
   // Show chibi reward when all replied (not during refresh)
@@ -742,7 +790,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '読み込み速度を改善しました。\n\nコメント取得の効率を上げて、待ち時間を短縮しています。'
+    'コメント一覧の並び順を切り替えられるようになりました。\n\nサマリーバー右側の「記事順」「コメント順」ボタンで切替できます。\nコメント順は最新コメントから順に確認したいときに便利です。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)

@@ -54,6 +54,7 @@
       <!-- Summary Bar -->
       <div class="summary-bar" id="summaryBar" hidden>
         <span id="summaryText"></span>
+        <button class="summary-toggle" id="viewModeBtn" aria-label="並び順切替"></button>
         <button class="summary-toggle" id="toggleRepliedBtn"></button>
       </div>
 
@@ -108,6 +109,12 @@
           <span class="ring-toggle-label">一覧に表示する</span>
           <input type="checkbox" id="ringVisibleToggle" class="ring-toggle-input" checked />
         </div>
+        <label class="modal-label" style="margin-top: 20px">旧コメント欄の記事</label>
+        <div class="ring-toggle-row">
+          <span class="ring-toggle-label">取得する（2025年9月以前）</span>
+          <input type="checkbox" id="legacyCommentsToggle" class="ring-toggle-input" checked />
+        </div>
+        <p class="modal-hint">無視したい場合はOFFにしてください</p>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="settingsCancelBtn">キャンセル</button>
           <button class="btn btn-primary" id="settingsSaveBtn">保存</button>

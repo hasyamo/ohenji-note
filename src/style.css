@@ -321,6 +321,15 @@ body {
   min-width: 0;
 }
 
+.comment-article-title {
+  font-size: 11px;
+  color: var(--outline);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .comment-meta {
   display: flex;
   align-items: center;
