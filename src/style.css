@@ -132,6 +132,59 @@ body {
   display: none;
 }
 
+/* --- Collab Banner --- */
+
+.collab-banner {
+  position: relative;
+  padding: 8px 20px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  letter-spacing: 0.08em;
+  background: linear-gradient(
+    90deg,
+    #d32f2f 0%,
+    #f57c00 50%,
+    #d32f2f 100%
+  );
+  background-size: 200% 100%;
+  animation: collabBannerShift 6s linear infinite;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.collab-banner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -50%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  animation: collabBannerShimmer 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes collabBannerShift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes collabBannerShimmer {
+  0% { left: -50%; }
+  60%, 100% { left: 110%; }
+}
+
+.collab-banner[hidden] {
+  display: none;
+}
+
 /* --- Loading --- */
 
 .loading {
