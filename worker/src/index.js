@@ -55,6 +55,9 @@ export default {
     if (url.pathname === '/api/ohenjicho/collab_stats' && request.method === 'GET') {
       return handleCollabStats(env, url)
     }
+    if (url.pathname === '/api/ohenjicho/collab_export' && request.method === 'GET') {
+      return handleCollabExport(env, url)
+    }
     if (url.pathname === '/api/ohenjicho/collab_reset' && request.method === 'POST') {
       return handleCollabReset(env, url)
     }
@@ -400,6 +403,66 @@ async function handleCollabStats(env, url) {
 
   return new Response(JSON.stringify({ stats: events, total: allKeys.length }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+// Export raw log entries as CSV.
+// Each row: timestamp_ms,jst_iso,event,periodId,creator,character,date
+async function handleCollabExport(env, url) {
+  if (!env.KV) {
+    return new Response('timestamp_ms,jst_iso,event,periodId,creator,character,date\n', {
+      headers: { ...corsHeaders, 'Content-Type': 'text/csv; charset=utf-8' },
+    })
+  }
+
+  const periodId = url.searchParams.get('periodId')
+  const prefix = periodId
+    ? `collab:log:${sanitizeKeyPart(periodId)}:`
+    : 'collab:log:'
+
+  const allKeys = []
+  let cursor = undefined
+  do {
+    const page = await env.KV.list({ prefix, cursor })
+    allKeys.push(...page.keys.map((k) => k.name))
+    cursor = page.list_complete ? undefined : page.cursor
+  } while (cursor)
+
+  // Sort by timestamp asc (chronological order)
+  allKeys.sort()
+
+  const rows = ['timestamp_ms,jst_iso,event,periodId,creator,character,date']
+  for (let i = 0; i < allKeys.length; i += 50) {
+    const chunk = allKeys.slice(i, i + 50)
+    const pairs = await Promise.all(
+      chunk.map(async (k) => [k, await env.KV.get(k, 'json')])
+    )
+    for (const [key, v] of pairs) {
+      if (!v) continue
+      // key shape: collab:log:{periodId}:{ts}-{random}
+      const tail = key.split(':').pop() || ''
+      const ts = Number(tail.split('-')[0]) || 0
+      const jst = ts > 0
+        ? new Date(ts + 9 * 3600 * 1000).toISOString().replace('Z', '+09:00')
+        : ''
+      const csvSafe = (s) => {
+        const str = String(s ?? '')
+        return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
+      }
+      rows.push([
+        ts,
+        jst,
+        csvSafe(v.event),
+        csvSafe(v.periodId),
+        csvSafe(v.creator),
+        csvSafe(v.character),
+        csvSafe(v.date),
+      ].join(','))
+    }
+  }
+
+  return new Response(rows.join('\n') + '\n', {
+    headers: { ...corsHeaders, 'Content-Type': 'text/csv; charset=utf-8' },
   })
 }
 
