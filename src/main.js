@@ -348,6 +348,86 @@ $('settingsBtn').addEventListener('click', () => {
 
 $('settingsCancelBtn').addEventListener('click', () => closeModal(settingsModal))
 
+// --- サポートデータコピー ---
+
+$('supportCopyBtn').addEventListener('click', async () => {
+  const btn = $('supportCopyBtn')
+  const originalText = btn.textContent
+  try {
+    const urlname = getUrlname()
+    const cache = getCache(urlname) || []
+    const manualReplied = getManualReplied()
+    const muted = getMutedUsers()
+
+    // キャッシュは要約だけ抜粋（コメント本文は含めない）
+    const articles = cache.map((a) => ({
+      key: a.key,
+      title: (a.title || '').slice(0, 60),
+      publishedAt: a.publishedAt,
+      commentCount: a.commentCount,
+      cachedCommentCount: (a.comments || []).length,
+      comments: (a.comments || []).map((c) => ({
+        key: c.key,
+        user: c.user?.urlname,
+        is_creator_replied: c.is_creator_replied,
+        is_creator_liked: c.is_creator_liked,
+        legacy: !!c._legacy,
+      })),
+    }))
+
+    // 統計
+    const allComments = articles.flatMap((a) => a.comments)
+    const stats = {
+      articleCount: articles.length,
+      totalComments: allComments.length,
+      uniqueCommentKeys: new Set(allComments.map((c) => c.key)).size,
+      nullishKeys: allComments.filter((c) => c.key == null || c.key === '').length,
+      creatorReplied: allComments.filter((c) => c.is_creator_replied).length,
+      creatorLiked: allComments.filter((c) => c.is_creator_liked).length,
+      manualRepliedCount: manualReplied.length,
+      manualRepliedNullish: manualReplied.filter((x) => x == null || x === '').length,
+    }
+
+    const data = {
+      appVersion: __APP_VERSION__,
+      exportedAt: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      settings: {
+        urlname,
+        rangeDays: getRangeDays(),
+        ringVisible: getRingVisible(),
+        legacyCommentsVisible: getLegacyCommentsVisible(),
+        viewMode: getViewMode(),
+        mutedUsers: muted,
+      },
+      stats,
+      manualReplied,
+      articles,
+    }
+    const json = JSON.stringify(data, null, 2)
+    let copied = false
+    try {
+      await navigator.clipboard.writeText(json)
+      copied = true
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = json
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.focus()
+      ta.select()
+      try { copied = document.execCommand('copy') } catch {}
+      document.body.removeChild(ta)
+    }
+    btn.textContent = copied ? 'コピーしました' : 'コピー失敗'
+    setTimeout(() => { btn.textContent = originalText }, 2000)
+  } catch (err) {
+    btn.textContent = 'コピー失敗'
+    setTimeout(() => { btn.textContent = originalText }, 2000)
+  }
+})
+
 const saveBtn = $('settingsSaveBtn')
 
 saveBtn.addEventListener('click', async () => {
@@ -910,7 +990,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'コラボ第1弾、開催です。\n\n5/18 〜 5/27 の10日間、3名のクリエイターのキャラが日替わりで登場します。\n未返信ゼロを達成した日のお楽しみに。'
+    '不具合調査のための機能を追加しました。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
