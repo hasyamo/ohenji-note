@@ -2,6 +2,37 @@ import './style.css'
 import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
+import { processComments as processCommentsCore } from './lib/process-comments.js'
+import { shouldShowPraise } from './lib/should-show-praise.js'
+
+// --- Interaction tracking (for manualReplied 異常検知) ---
+const interactionState = {
+  clickSeq: 0,
+  currentEventId: null,
+  lastEventAt: null,
+}
+
+function makeEventId(seq) {
+  const rand = Math.random().toString(36).slice(2, 8)
+  return `click_${Date.now()}_${seq}_${rand}`
+}
+
+document.addEventListener('click', () => {
+  interactionState.clickSeq += 1
+  interactionState.lastEventAt = new Date().toISOString()
+  interactionState.currentEventId = makeEventId(interactionState.clickSeq)
+}, true)
+
+function getManualRepliedContext() {
+  return {
+    now: new Date().toISOString(),
+    source: 'reply-button',
+    clickSeq: interactionState.clickSeq,
+    eventId: interactionState.currentEventId,
+    appVersion: __APP_VERSION__,
+    buildHash: null,
+  }
+}
 import charactersData from './rewards/characters.json'
 import collabPeriods from './rewards/collab/periods.json'
 
@@ -549,37 +580,7 @@ async function refresh() {
 function processComments(articles, urlname) {
   const manualReplied = getManualReplied()
   const mutedUrlnames = getMutedUsers().map((u) => u.urlname)
-
-  return articles
-    .map((article) => {
-      // Filter out own comments and muted users
-      const otherComments = (article.comments || []).filter(
-        (c) => c.user && c.user.urlname !== urlname && !mutedUrlnames.includes(c.user.urlname)
-      )
-
-      // Classify each comment
-      const classified = otherComments.map((c) => {
-        let status = 'unreplied'
-        if (c.is_creator_replied || manualReplied.includes(c.key)) {
-          status = 'replied'
-        } else if (c.is_creator_liked) {
-          status = 'liked'
-        }
-        return { ...c, status }
-      })
-
-      // Sort: unreplied first, then liked, then replied
-      const order = { unreplied: 0, liked: 1, replied: 2 }
-      classified.sort((a, b) => order[a.status] - order[b.status])
-
-      return {
-        ...article,
-        comments: classified,
-        unrepliedCount: classified.filter((c) => c.status !== 'replied').length,
-      }
-    })
-    .filter((a) => a.comments.length > 0)
-    .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))
+  return processCommentsCore(articles, urlname, manualReplied, mutedUrlnames)
 }
 
 // --- Render ---
@@ -804,7 +805,7 @@ function render() {
   }
 
   // Show chibi reward when all replied (not during refresh)
-  if ((!hasVisibleComments || forceReward) && !isRefreshing) {
+  if (shouldShowPraise(articlesWithComments, { isRefreshing, forceReward })) {
     const picked = pickReward()
     if (picked) {
       const { character, variation, credit, periodId } = picked
@@ -879,7 +880,7 @@ function handleReturn() {
 
 $('replyYesBtn').addEventListener('click', () => {
   if (pendingComment) {
-    addManualReplied(pendingComment.commentKey)
+    addManualReplied(pendingComment.commentKey, getManualRepliedContext())
     pendingComment = null
   }
   closeModal(replyModal)
