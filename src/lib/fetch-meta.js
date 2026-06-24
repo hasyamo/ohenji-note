@@ -46,6 +46,18 @@ export function isReliableFetchMeta(meta) {
 }
 
 /**
+ * 取得状態アイコンを更新ボタン横に出すべきかを判定する。
+ * - meta が無い場合（初回） → 出さない
+ * - complete → 出さない（信頼できる）
+ * - partial / failed → 出す
+ * - unknown → 出さない（初回扱い）
+ */
+export function shouldShowFetchWarningIcon(meta) {
+  if (!meta) return false
+  return meta.fetchStatus === 'partial' || meta.fetchStatus === 'failed'
+}
+
+/**
  * 取得結果からキャッシュを上書きすべきか判断する純粋関数。
  *
  * 入力:

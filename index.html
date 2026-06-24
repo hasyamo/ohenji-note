@@ -26,6 +26,13 @@
       <header class="header">
         <h1 class="header-title">おへんじ帖</h1>
         <div class="header-actions">
+          <button class="header-btn header-btn--warning" id="fetchWarningBtn" aria-label="取得状態" hidden>
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </button>
           <button class="header-btn" id="refreshBtn" aria-label="更新">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 2v6h-6"></path>
@@ -162,6 +169,21 @@
         <p class="update-body" id="updateBody"></p>
         <div class="modal-actions">
           <button class="btn btn-primary" id="updateCloseBtn">閉じる</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fetch Warning Modal -->
+    <div class="modal-overlay modal-overlay--top" id="fetchWarningModal">
+      <div class="modal modal--top">
+        <h2 class="modal-title">取得状態</h2>
+        <p class="update-body" id="fetchWarningBody">一部データを取得できていない可能性があります。気になる場合は、もう一度更新してみてください。</p>
+        <details class="fetch-warning-details" id="fetchWarningDetails" hidden>
+          <summary>詳細</summary>
+          <div id="fetchWarningDetailContent"></div>
+        </details>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="fetchWarningCloseBtn">閉じる</button>
         </div>
       </div>
     </div>

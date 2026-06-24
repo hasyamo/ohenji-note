@@ -93,8 +93,27 @@ body {
   animation: spin 1s linear infinite;
 }
 
+.header-btn--warning {
+  color: #ffd54f;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.fetch-warning-details {
+  margin-top: 12px;
+  font-size: 0.85em;
+  color: var(--on-surface-variant, #666);
+}
+.fetch-warning-details summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.fetch-warning-details pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 0.85em;
 }
 
 /* --- Summary Bar --- */

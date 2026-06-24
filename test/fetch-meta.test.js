@@ -8,6 +8,7 @@ import {
   markFetchPartial,
   markFetchFailed,
   mergeFetchMeta,
+  shouldShowFetchWarningIcon,
 } from '../src/lib/fetch-meta.js'
 
 describe('emptyFetchMeta', () => {
@@ -196,6 +197,25 @@ describe('mark系の遷移', () => {
     expect(next.errors).toHaveLength(1)
     expect(next.errors[0].message).toBe('boom')
     expect(next.errors[0].phase).toBe('articles')
+  })
+})
+
+describe('shouldShowFetchWarningIcon', () => {
+  it('complete なら出さない', () => {
+    expect(shouldShowFetchWarningIcon({ fetchStatus: 'complete' })).toBe(false)
+  })
+  it('partial なら出す', () => {
+    expect(shouldShowFetchWarningIcon({ fetchStatus: 'partial' })).toBe(true)
+  })
+  it('failed なら出す', () => {
+    expect(shouldShowFetchWarningIcon({ fetchStatus: 'failed' })).toBe(true)
+  })
+  it('unknown なら出さない', () => {
+    expect(shouldShowFetchWarningIcon({ fetchStatus: 'unknown' })).toBe(false)
+  })
+  it('meta が null なら出さない', () => {
+    expect(shouldShowFetchWarningIcon(null)).toBe(false)
+    expect(shouldShowFetchWarningIcon(undefined)).toBe(false)
   })
 })
 

@@ -1,7 +1,7 @@
 import './style.css'
 import { getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
-import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta } from './lib/fetch-meta.js'
+import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta, shouldShowFetchWarningIcon } from './lib/fetch-meta.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 import { processComments as processCommentsCore } from './lib/process-comments.js'
 import { shouldShowPraise } from './lib/should-show-praise.js'
@@ -557,8 +557,42 @@ async function refresh() {
   content.hidden = false
   isRefreshing = false
   refreshBtn.classList.remove('refreshing')
+  updateFetchWarningIcon()
   render()
 }
+
+// --- Fetch warning icon ---
+
+function updateFetchWarningIcon() {
+  const urlname = getUrlname()
+  const cache = readPreviousCacheRaw(urlname)
+  const meta = cache?.meta || null
+  const btn = $('fetchWarningBtn')
+  if (!btn) return
+  btn.hidden = !shouldShowFetchWarningIcon(meta)
+}
+
+$('fetchWarningBtn')?.addEventListener('click', () => {
+  const urlname = getUrlname()
+  const cache = readPreviousCacheRaw(urlname)
+  const meta = cache?.meta || null
+  const detail = $('fetchWarningDetails')
+  const detailContent = $('fetchWarningDetailContent')
+  if (meta && detail && detailContent) {
+    detail.hidden = false
+    const summary = {
+      取得状況: meta.fetchStatus,
+      停止理由: meta.stoppedReason || '—',
+      記事数: meta.articleCount,
+      ページ数: meta.pageCount,
+      最終取得: meta.finishedAt || '—',
+    }
+    detailContent.innerHTML = `<pre>${escapeHtml(JSON.stringify(summary, null, 2))}</pre>`
+  }
+  openModal($('fetchWarningModal'))
+})
+
+$('fetchWarningCloseBtn')?.addEventListener('click', () => closeModal($('fetchWarningModal')))
 
 // --- Process comments ---
 
@@ -997,6 +1031,7 @@ $('appVersion').textContent = `おへんじ帖 v${__APP_VERSION__}`
 // --- Init ---
 
 checkVersionUpdate()
+updateFetchWarningIcon()
 
 if (!getUrlname()) {
   openModal(settingsModal)
