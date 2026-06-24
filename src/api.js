@@ -1,4 +1,5 @@
 import { sleep } from './utils.js'
+import { emptyFetchMeta, appendPageLog, markFetchComplete, markFetchPartial, markFetchFailed } from './lib/fetch-meta.js'
 
 const PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/'
 
@@ -25,50 +26,114 @@ export async function validateCreator(urlname) {
  * Fetch all articles for a creator, paginating and filtering for commentCount > 0.
  * Calls onProgress(current, total) for UI updates.
  */
+/**
+ * 記事一覧をページ取得する。
+ * 後方互換のため articles 配列だけを返す。
+ * 内部で fetchAllArticlesWithMeta を呼び出す。
+ */
 export async function fetchAllArticles(urlname, rangeDays, onProgress) {
+  const { articles } = await fetchAllArticlesWithMeta(urlname, rangeDays, onProgress)
+  return articles
+}
+
+/**
+ * 記事一覧を取得し、articles と fetchMeta を返す。
+ *
+ * fetchMeta.fetchStatus は:
+ *   - 'complete' … 最後の isLastPage まで取りきった、または range 内に収まった
+ *   - 'partial'  … cutoff(範囲外)で打ち切った、または途中で空ページを得た
+ *   - 'failed'   … 例外で停止
+ */
+export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress) {
   const articles = []
   let page = 1
   let isLastPage = false
   const cutoff = rangeDays > 0 ? Date.now() - rangeDays * 86400000 : 0
+  let meta = { ...emptyFetchMeta(), startedAt: new Date().toISOString() }
+  let stoppedReason = null
 
-  while (!isLastPage) {
-    if (onProgress) onProgress(`記事一覧を取得中... (${articles.length}件)`)
+  try {
+    while (!isLastPage) {
+      if (onProgress) onProgress(`記事一覧を取得中... (${articles.length}件)`)
 
-    const json = await proxyFetch(
-      `/api/v2/creators/${encodeURIComponent(urlname)}/contents?kind=note&page=${page}`
-    )
+      const json = await proxyFetch(
+        `/api/v2/creators/${encodeURIComponent(urlname)}/contents?kind=note&page=${page}`
+      )
 
-    const contents = json.data?.contents || []
-    if (contents.length === 0) break
+      const contents = json.data?.contents || []
+      const apiIsLastPage = json.data?.isLastPage ?? true
 
-    let reachedCutoff = false
-    for (const article of contents) {
-      // Skip pinned articles from cutoff check
-      if (!article.isPinned && cutoff > 0 && new Date(article.publishAt).getTime() < cutoff) {
-        reachedCutoff = true
+      if (contents.length === 0) {
+        meta = appendPageLog(meta, { pageNo: page, articleCount: 0, status: 'empty', nextPage: null })
+        stoppedReason = 'empty_page'
         break
       }
-      if (article.commentCount > 0) {
-        articles.push({
-          id: article.id,
-          key: article.key,
-          title: article.name,
-          commentCount: article.commentCount,
-          publishedAt: article.publishAt,
-          urlname: urlname,
-        })
+
+      let reachedCutoff = false
+      let addedInPage = 0
+      for (const article of contents) {
+        if (!article.isPinned && cutoff > 0 && new Date(article.publishAt).getTime() < cutoff) {
+          reachedCutoff = true
+          break
+        }
+        if (article.commentCount > 0) {
+          articles.push({
+            id: article.id,
+            key: article.key,
+            title: article.name,
+            commentCount: article.commentCount,
+            publishedAt: article.publishAt,
+            urlname: urlname,
+          })
+          addedInPage++
+        }
       }
+
+      meta = appendPageLog(meta, {
+        pageNo: page,
+        articleCount: contents.length,
+        addedCount: addedInPage,
+        nextPage: apiIsLastPage ? null : page + 1,
+        status: 'ok',
+      })
+
+      if (reachedCutoff) {
+        stoppedReason = 'range_cutoff'
+        break
+      }
+
+      isLastPage = apiIsLastPage
+      page++
+
+      if (!isLastPage) await sleep(200)
     }
 
-    if (reachedCutoff) break
+    // 終了状態を決定
+    if (stoppedReason === 'range_cutoff') {
+      // 範囲指定での打ち切りは「指定範囲を完全に取れた」とみなして complete 扱い
+      meta = markFetchComplete(meta, {
+        articleCount: articles.length,
+        commentCount: 0,
+      })
+      meta = { ...meta, stoppedReason: 'range_cutoff' }
+    } else if (stoppedReason === 'empty_page' && page === 1) {
+      meta = markFetchPartial(meta, {
+        articleCount: articles.length,
+        commentCount: 0,
+        stoppedReason: 'empty_page',
+      })
+    } else {
+      meta = markFetchComplete(meta, {
+        articleCount: articles.length,
+        commentCount: 0,
+      })
+    }
 
-    isLastPage = json.data?.isLastPage ?? true
-    page++
-
-    if (!isLastPage) await sleep(200)
+    return { ok: true, articles, fetchMeta: meta }
+  } catch (err) {
+    meta = markFetchFailed(meta, { error: err, phase: 'articles' })
+    return { ok: false, articles, fetchMeta: meta }
   }
-
-  return articles
 }
 
 // 2025-09-08 10:00 JST: note.com switched to threaded comments.
@@ -242,6 +307,18 @@ export async function optInRing(urlname) {
  * Only fetches comments for articles whose commentCount changed.
  */
 export async function fetchUpdatedComments(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress) {
+  const { result } = await fetchUpdatedCommentsWithMeta(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress)
+  return result
+}
+
+/**
+ * コメント取得を行い、result と fetchMeta を返す。
+ *
+ * fetchMeta.fetchStatus は:
+ *   - 'complete' … 全記事のコメントを取得し終えた（キャッシュ流用含む）
+ *   - 'failed'   … 途中で例外が出た。result には取得済みのものまで入る
+ */
+export async function fetchUpdatedCommentsWithMeta(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress) {
   const cacheMap = new Map()
   if (cachedArticles) {
     for (const a of cachedArticles) {
@@ -256,15 +333,18 @@ export async function fetchUpdatedComments(articles, cachedArticles, ownerUrlnam
     return !cached || cached.commentCount !== a.commentCount
   })
 
-  for (let i = 0; i < articles.length; i++) {
-    const article = articles[i]
-    const cached = cacheMap.get(article.key)
+  let meta = { ...emptyFetchMeta(), startedAt: new Date().toISOString() }
 
-    if (cached && cached.commentCount === article.commentCount) {
-      // Use cached comments
-      result.push({ ...article, comments: cached.comments })
-    } else {
-      // Fetch fresh comments
+  try {
+    for (let i = 0; i < articles.length; i++) {
+      const article = articles[i]
+      const cached = cacheMap.get(article.key)
+
+      if (cached && cached.commentCount === article.commentCount) {
+        result.push({ ...article, comments: cached.comments })
+        continue
+      }
+
       fetchCount++
       if (onProgress) onProgress(`コメント取得中... (${fetchCount}/${toFetch.length}) ${article.title}`)
 
@@ -273,7 +353,14 @@ export async function fetchUpdatedComments(articles, cachedArticles, ownerUrlnam
 
       if (fetchCount < toFetch.length) await sleep(200)
     }
-  }
 
-  return result
+    const commentCount = result.reduce((s, a) => s + ((a.comments || []).length), 0)
+    meta = markFetchComplete(meta, { articleCount: result.length, commentCount })
+    return { ok: true, result, fetchMeta: meta }
+  } catch (err) {
+    const commentCount = result.reduce((s, a) => s + ((a.comments || []).length), 0)
+    meta = markFetchFailed(meta, { error: err, phase: 'comments' })
+    meta = { ...meta, articleCount: result.length, commentCount }
+    return { ok: false, result, fetchMeta: meta }
+  }
 }

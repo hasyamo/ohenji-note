@@ -24,6 +24,7 @@ export function buildSupportData(input = {}) {
     cache = null,
     manualRepliedEntries = [],
     debugEvents = [],
+    fetchMeta = null,
   } = input
 
   const articles = (cache?.articles || []).map((a) => ({
@@ -76,6 +77,7 @@ export function buildSupportData(input = {}) {
       mutedUsers: settings.mutedUsers ?? [],
     },
     stats,
+    fetchMeta,
     manualReplied: manualRepliedEntries,
     suspiciousGroups: buildSuspiciousManualGroups(manualRepliedEntries),
     debugEvents,

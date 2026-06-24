@@ -178,3 +178,33 @@ export function saveCache(urlname, articles) {
     // localStorage full — ignore
   }
 }
+
+/**
+ * 「raw な前回キャッシュ」をそのまま返す。
+ * commitCacheDecision に渡すための入口で、urlname の判定もここで行う。
+ */
+export function readPreviousCacheRaw(urlname) {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const cache = JSON.parse(raw)
+    if (!cache || cache.urlname !== urlname) return null
+    if (!Array.isArray(cache.articles)) return null
+    return cache
+  } catch {
+    return null
+  }
+}
+
+/**
+ * commitCacheDecision の出力を localStorage に書き込む。
+ * 渡されたオブジェクト（{ urlname, updatedAt, articles, meta }）をそのまま保存する。
+ */
+export function saveCacheWithMeta(nextCache) {
+  if (!nextCache) return
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(nextCache))
+  } catch {
+    // localStorage full — ignore
+  }
+}

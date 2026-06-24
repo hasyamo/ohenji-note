@@ -1,6 +1,7 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents } from './storage.js'
-import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
+import { getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents } from './storage.js'
+import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
+import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta } from './lib/fetch-meta.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 import { processComments as processCommentsCore } from './lib/process-comments.js'
 import { shouldShowPraise } from './lib/should-show-praise.js'
@@ -387,6 +388,7 @@ $('supportCopyBtn').addEventListener('click', async () => {
   const originalText = btn.textContent
   try {
     const urlname = getUrlname()
+    const previousCacheRaw = readPreviousCacheRaw(urlname)
     const data = buildSupportData({
       appVersion: __APP_VERSION__,
       buildHash: null,
@@ -403,6 +405,7 @@ $('supportCopyBtn').addEventListener('click', async () => {
       cache: { articles: getCache(urlname) || [] },
       manualRepliedEntries: getManualRepliedEntries({ appVersion: __APP_VERSION__ }),
       debugEvents: getDebugEvents(),
+      fetchMeta: previousCacheRaw?.meta || null,
     })
     const json = JSON.stringify(data, null, 2)
     let copied = false
@@ -519,17 +522,30 @@ async function refresh() {
 
   try {
     const rangeDays = getRangeDays()
-    const articles = await fetchAllArticles(urlname, rangeDays, (msg) => {
+    const articlesRes = await fetchAllArticlesWithMeta(urlname, rangeDays, (msg) => {
       loadingText.textContent = msg
     })
 
     const legacyVisible = getLegacyCommentsVisible()
-    const enriched = await fetchUpdatedComments(articles, cachedArticles, urlname, legacyVisible, (msg) => {
+    const commentsRes = await fetchUpdatedCommentsWithMeta(articlesRes.articles, cachedArticles, urlname, legacyVisible, (msg) => {
       loadingText.textContent = msg
     })
 
-    saveCache(urlname, enriched)
-    articlesWithComments = processComments(enriched, urlname)
+    // 取得結果から fetchMeta を合成
+    const combinedMeta = mergeFetchMeta(articlesRes.fetchMeta, commentsRes.fetchMeta)
+    const previousCacheRaw = readPreviousCacheRaw(urlname)
+    const decision = commitCacheDecision({
+      previousCache: previousCacheRaw,
+      result: { ok: articlesRes.ok && commentsRes.ok, articles: commentsRes.result, fetchMeta: combinedMeta },
+      urlname,
+      now: new Date().toISOString(),
+    })
+
+    // staging→commit: decision に従ってキャッシュを書く
+    saveCacheWithMeta(decision.nextCache)
+
+    // 画面表示には今回取得できた分を使う（既存ロジック踏襲）
+    articlesWithComments = processComments(commentsRes.result, urlname)
   } catch (err) {
     if (!hasCache) {
       content.innerHTML = `<div class="error-banner">エラー: ${escapeHtml(err.message)}</div>`
