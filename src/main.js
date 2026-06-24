@@ -1,9 +1,10 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode } from './storage.js'
+import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 import { processComments as processCommentsCore } from './lib/process-comments.js'
 import { shouldShowPraise } from './lib/should-show-praise.js'
+import { buildSupportData } from './lib/support-data.js'
 
 // --- Interaction tracking (for manualReplied 異常検知) ---
 const interactionState = {
@@ -386,41 +387,9 @@ $('supportCopyBtn').addEventListener('click', async () => {
   const originalText = btn.textContent
   try {
     const urlname = getUrlname()
-    const cache = getCache(urlname) || []
-    const manualReplied = getManualReplied()
-    const muted = getMutedUsers()
-
-    // キャッシュは要約だけ抜粋（コメント本文は含めない）
-    const articles = cache.map((a) => ({
-      key: a.key,
-      title: (a.title || '').slice(0, 60),
-      publishedAt: a.publishedAt,
-      commentCount: a.commentCount,
-      cachedCommentCount: (a.comments || []).length,
-      comments: (a.comments || []).map((c) => ({
-        key: c.key,
-        user: c.user?.urlname,
-        is_creator_replied: c.is_creator_replied,
-        is_creator_liked: c.is_creator_liked,
-        legacy: !!c._legacy,
-      })),
-    }))
-
-    // 統計
-    const allComments = articles.flatMap((a) => a.comments)
-    const stats = {
-      articleCount: articles.length,
-      totalComments: allComments.length,
-      uniqueCommentKeys: new Set(allComments.map((c) => c.key)).size,
-      nullishKeys: allComments.filter((c) => c.key == null || c.key === '').length,
-      creatorReplied: allComments.filter((c) => c.is_creator_replied).length,
-      creatorLiked: allComments.filter((c) => c.is_creator_liked).length,
-      manualRepliedCount: manualReplied.length,
-      manualRepliedNullish: manualReplied.filter((x) => x == null || x === '').length,
-    }
-
-    const data = {
+    const data = buildSupportData({
       appVersion: __APP_VERSION__,
+      buildHash: null,
       exportedAt: new Date().toISOString(),
       userAgent: navigator.userAgent,
       settings: {
@@ -429,12 +398,12 @@ $('supportCopyBtn').addEventListener('click', async () => {
         ringVisible: getRingVisible(),
         legacyCommentsVisible: getLegacyCommentsVisible(),
         viewMode: getViewMode(),
-        mutedUsers: muted,
+        mutedUsers: getMutedUsers(),
       },
-      stats,
-      manualReplied,
-      articles,
-    }
+      cache: { articles: getCache(urlname) || [] },
+      manualRepliedEntries: getManualRepliedEntries({ appVersion: __APP_VERSION__ }),
+      debugEvents: getDebugEvents(),
+    })
     const json = JSON.stringify(data, null, 2)
     let copied = false
     try {
