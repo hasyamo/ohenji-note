@@ -59,6 +59,11 @@ export function buildSupportData(input = {}) {
     manualRepliedLegacyCount: legacyKeys.size,
     manualRepliedKeyInCache: allComments.filter((c) => manualKeys.has(c.key)).length,
     debugEventCount: debugEvents.length,
+    schemaVersion: cache?.schemaVersion ?? null,
+    cacheMode: cache?.cacheMode ?? null,
+    storageStatus: cache?.meta?.storageStatus ?? null,
+    storageFailureReason: cache?.meta?.storageFailureReason ?? null,
+    cacheSizeBytes: cache?.meta?.cacheSizeBytes ?? null,
   }
 
   return {

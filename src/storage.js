@@ -1,4 +1,5 @@
 import { migrateManualReplied, addManualRepliedEntry } from './lib/manual-replied.js'
+import { classifyStorageError, prepareCacheForSave, CURRENT_CACHE_SCHEMA_VERSION } from './lib/cache-storage.js'
 
 const URLNAME_KEY = 'ncm_urlname'
 const MANUAL_REPLIED_KEY = 'ncm_manual_replied'
@@ -198,13 +199,60 @@ export function readPreviousCacheRaw(urlname) {
 
 /**
  * commitCacheDecision の出力を localStorage に書き込む。
- * 渡されたオブジェクト（{ urlname, updatedAt, articles, meta }）をそのまま保存する。
+ * 保存失敗時は **握りつぶさず**、結果オブジェクトとして返す。
+ *
+ * 戻り値:
+ *   { ok: true,  storageStatus: 'saved',  sizeBytes }                                — 保存成功
+ *   { ok: false, storageStatus: 'failed', reason, errorName, message, sizeBytes }     — 保存失敗
+ *   { ok: false, storageStatus: 'skipped' }                                            — null 入力
  */
 export function saveCacheWithMeta(nextCache) {
-  if (!nextCache) return
+  if (!nextCache) return { ok: false, storageStatus: 'skipped' }
+  const { cache, json, sizeBytes } = prepareCacheForSave(nextCache)
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(nextCache))
-  } catch {
-    // localStorage full — ignore
+    localStorage.setItem(CACHE_KEY, json)
+    return { ok: true, storageStatus: 'saved', sizeBytes, cache }
+  } catch (error) {
+    return {
+      ok: false,
+      storageStatus: 'failed',
+      reason: classifyStorageError(error),
+      errorName: error?.name || null,
+      message: error?.message || null,
+      sizeBytes,
+    }
   }
+}
+
+/**
+ * 現在のキャッシュ全体の保存ステータスを返す。
+ * - cache.meta.storageStatus を読む
+ * - cache 自体が無ければ 'unknown'
+ */
+export function getCacheStorageStatus(urlname) {
+  const cache = readPreviousCacheRaw(urlname)
+  return cache?.meta?.storageStatus || 'unknown'
+}
+
+/**
+ * キャッシュから特定のコメントキーを削除する。
+ * 「返信した」押下時、対応対象キャッシュから1件取り除くのに使う。
+ * 戻り値は saveCacheWithMeta と同じ結果オブジェクト。
+ */
+export function removeCommentFromCache(urlname, commentKey) {
+  if (!commentKey) return { ok: false, storageStatus: 'skipped' }
+  const cache = readPreviousCacheRaw(urlname)
+  if (!cache) return { ok: false, storageStatus: 'skipped' }
+  const nextArticles = (cache.articles || [])
+    .map((a) => ({
+      ...a,
+      comments: (a.comments || []).filter((c) => c.key !== commentKey),
+    }))
+    .filter((a) => (a.comments || []).length > 0)
+  const nextCache = {
+    ...cache,
+    updatedAt: new Date().toISOString(),
+    articles: nextArticles,
+  }
+  return saveCacheWithMeta(nextCache)
 }

@@ -1,7 +1,8 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents } from './storage.js'
+import { getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta, shouldShowFetchWarningIcon } from './lib/fetch-meta.js'
+import { filterActionableComments } from './lib/cache-storage.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
 import { processComments as processCommentsCore } from './lib/process-comments.js'
 import { shouldShowPraise } from './lib/should-show-praise.js'
@@ -402,7 +403,7 @@ $('supportCopyBtn').addEventListener('click', async () => {
         viewMode: getViewMode(),
         mutedUsers: getMutedUsers(),
       },
-      cache: { articles: getCache(urlname) || [] },
+      cache: previousCacheRaw || { articles: [] },
       manualRepliedEntries: getManualRepliedEntries({ appVersion: __APP_VERSION__ }),
       debugEvents: getDebugEvents(),
       fetchMeta: previousCacheRaw?.meta || null,
@@ -534,15 +535,33 @@ async function refresh() {
     // 取得結果から fetchMeta を合成
     const combinedMeta = mergeFetchMeta(articlesRes.fetchMeta, commentsRes.fetchMeta)
     const previousCacheRaw = readPreviousCacheRaw(urlname)
+
+    // 「対応対象キャッシュ」: 未返信＋いいね済のみを保存対象にする
+    const actionableArticles = filterActionableComments(commentsRes.result, urlname)
+
     const decision = commitCacheDecision({
       previousCache: previousCacheRaw,
-      result: { ok: articlesRes.ok && commentsRes.ok, articles: commentsRes.result, fetchMeta: combinedMeta },
+      result: { ok: articlesRes.ok && commentsRes.ok, articles: actionableArticles, fetchMeta: combinedMeta },
       urlname,
       now: new Date().toISOString(),
     })
 
     // staging→commit: decision に従ってキャッシュを書く
-    saveCacheWithMeta(decision.nextCache)
+    const saveResult = saveCacheWithMeta(decision.nextCache)
+    // 保存結果（成功/失敗）を meta に反映してもう一度保存（失敗時は次回起動で見える）
+    if (decision.nextCache) {
+      decision.nextCache.meta = {
+        ...(decision.nextCache.meta || {}),
+        storageStatus: saveResult.ok ? 'saved' : 'failed',
+        storageFailureReason: saveResult.ok ? null : (saveResult.reason || 'unknown'),
+        storageFailureMessage: saveResult.ok ? null : (saveResult.message || null),
+        cacheSizeBytes: saveResult.sizeBytes || null,
+      }
+      // 成功時のみ再保存（失敗時は前回キャッシュをそのまま残す）
+      if (saveResult.ok) {
+        saveCacheWithMeta(decision.nextCache)
+      }
+    }
 
     // 画面表示には今回取得できた分を使う（既存ロジック踏襲）
     articlesWithComments = processComments(commentsRes.result, urlname)
@@ -898,13 +917,15 @@ function handleReturn() {
 }
 
 $('replyYesBtn').addEventListener('click', () => {
+  const urlname = getUrlname()
   if (pendingComment) {
     addManualReplied(pendingComment.commentKey, getManualRepliedContext())
+    // 対応対象キャッシュからも該当コメントを削除（キャッシュは「作業キュー」）
+    removeCommentFromCache(urlname, pendingComment.commentKey)
     pendingComment = null
   }
   closeModal(replyModal)
   // Re-process and render with updated manual replied
-  const urlname = getUrlname()
   const cached = getCache(urlname)
   if (cached) {
     articlesWithComments = processComments(cached, urlname)
