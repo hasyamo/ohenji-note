@@ -1,14 +1,18 @@
 {
   "name": "ohenji-note",
   "private": true,
-  "version": "1.6.1",
+  "version": "1.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "vite": "^6.4.1"
+    "jsdom": "^29.1.1",
+    "vite": "^6.4.1",
+    "vitest": "^4.1.9"
   }
 }

@@ -1,7 +1,41 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, getRangeDays, setRangeDays, getManualReplied, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode } from './storage.js'
-import { validateCreator, fetchAllArticles, fetchUpdatedComments, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
+import { getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents } from './storage.js'
+import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
+import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta, shouldShowFetchWarningIcon } from './lib/fetch-meta.js'
+import { filterActionableComments } from './lib/cache-storage.js'
 import { parseComment, relativeTime, escapeHtml } from './utils.js'
+import { processComments as processCommentsCore } from './lib/process-comments.js'
+import { shouldShowPraise } from './lib/should-show-praise.js'
+import { buildSupportData } from './lib/support-data.js'
+
+// --- Interaction tracking (for manualReplied 異常検知) ---
+const interactionState = {
+  clickSeq: 0,
+  currentEventId: null,
+  lastEventAt: null,
+}
+
+function makeEventId(seq) {
+  const rand = Math.random().toString(36).slice(2, 8)
+  return `click_${Date.now()}_${seq}_${rand}`
+}
+
+document.addEventListener('click', () => {
+  interactionState.clickSeq += 1
+  interactionState.lastEventAt = new Date().toISOString()
+  interactionState.currentEventId = makeEventId(interactionState.clickSeq)
+}, true)
+
+function getManualRepliedContext() {
+  return {
+    now: new Date().toISOString(),
+    source: 'reply-button',
+    clickSeq: interactionState.clickSeq,
+    eventId: interactionState.currentEventId,
+    appVersion: __APP_VERSION__,
+    buildHash: null,
+  }
+}
 import charactersData from './rewards/characters.json'
 import collabPeriods from './rewards/collab/periods.json'
 
@@ -261,7 +295,6 @@ const urlnameInput = $('urlnameInput')
 let articlesWithComments = []
 let isRefreshing = false
 let pendingComment = null // {commentKey, articleKey, commentBody}
-let showReplied = false
 let viewMode = getViewMode() // 'articles' or 'comments'
 
 // --- Modal helpers ---
@@ -355,41 +388,10 @@ $('supportCopyBtn').addEventListener('click', async () => {
   const originalText = btn.textContent
   try {
     const urlname = getUrlname()
-    const cache = getCache(urlname) || []
-    const manualReplied = getManualReplied()
-    const muted = getMutedUsers()
-
-    // キャッシュは要約だけ抜粋（コメント本文は含めない）
-    const articles = cache.map((a) => ({
-      key: a.key,
-      title: (a.title || '').slice(0, 60),
-      publishedAt: a.publishedAt,
-      commentCount: a.commentCount,
-      cachedCommentCount: (a.comments || []).length,
-      comments: (a.comments || []).map((c) => ({
-        key: c.key,
-        user: c.user?.urlname,
-        is_creator_replied: c.is_creator_replied,
-        is_creator_liked: c.is_creator_liked,
-        legacy: !!c._legacy,
-      })),
-    }))
-
-    // 統計
-    const allComments = articles.flatMap((a) => a.comments)
-    const stats = {
-      articleCount: articles.length,
-      totalComments: allComments.length,
-      uniqueCommentKeys: new Set(allComments.map((c) => c.key)).size,
-      nullishKeys: allComments.filter((c) => c.key == null || c.key === '').length,
-      creatorReplied: allComments.filter((c) => c.is_creator_replied).length,
-      creatorLiked: allComments.filter((c) => c.is_creator_liked).length,
-      manualRepliedCount: manualReplied.length,
-      manualRepliedNullish: manualReplied.filter((x) => x == null || x === '').length,
-    }
-
-    const data = {
+    const previousCacheRaw = readPreviousCacheRaw(urlname)
+    const data = buildSupportData({
       appVersion: __APP_VERSION__,
+      buildHash: null,
       exportedAt: new Date().toISOString(),
       userAgent: navigator.userAgent,
       settings: {
@@ -398,12 +400,13 @@ $('supportCopyBtn').addEventListener('click', async () => {
         ringVisible: getRingVisible(),
         legacyCommentsVisible: getLegacyCommentsVisible(),
         viewMode: getViewMode(),
-        mutedUsers: muted,
+        mutedUsers: getMutedUsers(),
       },
-      stats,
-      manualReplied,
-      articles,
-    }
+      cache: previousCacheRaw || { articles: [] },
+      manualRepliedEntries: getManualRepliedEntries({ appVersion: __APP_VERSION__ }),
+      debugEvents: getDebugEvents(),
+      fetchMeta: previousCacheRaw?.meta || null,
+    })
     const json = JSON.stringify(data, null, 2)
     let copied = false
     try {
@@ -472,11 +475,6 @@ saveBtn.addEventListener('click', async () => {
 
 // --- Toggle replied ---
 
-$('toggleRepliedBtn').addEventListener('click', () => {
-  showReplied = !showReplied
-  render()
-})
-
 // --- View mode toggle ---
 
 $('viewModeBtn').addEventListener('click', () => {
@@ -519,17 +517,48 @@ async function refresh() {
 
   try {
     const rangeDays = getRangeDays()
-    const articles = await fetchAllArticles(urlname, rangeDays, (msg) => {
+    const articlesRes = await fetchAllArticlesWithMeta(urlname, rangeDays, (msg) => {
       loadingText.textContent = msg
     })
 
     const legacyVisible = getLegacyCommentsVisible()
-    const enriched = await fetchUpdatedComments(articles, cachedArticles, urlname, legacyVisible, (msg) => {
+    const commentsRes = await fetchUpdatedCommentsWithMeta(articlesRes.articles, cachedArticles, urlname, legacyVisible, (msg) => {
       loadingText.textContent = msg
     })
 
-    saveCache(urlname, enriched)
-    articlesWithComments = processComments(enriched, urlname)
+    // 取得結果から fetchMeta を合成
+    const combinedMeta = mergeFetchMeta(articlesRes.fetchMeta, commentsRes.fetchMeta)
+    const previousCacheRaw = readPreviousCacheRaw(urlname)
+
+    // 「対応対象キャッシュ」: 未返信＋いいね済のみを保存対象にする
+    const actionableArticles = filterActionableComments(commentsRes.result, urlname)
+
+    const decision = commitCacheDecision({
+      previousCache: previousCacheRaw,
+      result: { ok: articlesRes.ok && commentsRes.ok, articles: actionableArticles, fetchMeta: combinedMeta },
+      urlname,
+      now: new Date().toISOString(),
+    })
+
+    // staging→commit: decision に従ってキャッシュを書く
+    const saveResult = saveCacheWithMeta(decision.nextCache)
+    // 保存結果（成功/失敗）を meta に反映してもう一度保存（失敗時は次回起動で見える）
+    if (decision.nextCache) {
+      decision.nextCache.meta = {
+        ...(decision.nextCache.meta || {}),
+        storageStatus: saveResult.ok ? 'saved' : 'failed',
+        storageFailureReason: saveResult.ok ? null : (saveResult.reason || 'unknown'),
+        storageFailureMessage: saveResult.ok ? null : (saveResult.message || null),
+        cacheSizeBytes: saveResult.sizeBytes || null,
+      }
+      // 成功時のみ再保存（失敗時は前回キャッシュをそのまま残す）
+      if (saveResult.ok) {
+        saveCacheWithMeta(decision.nextCache)
+      }
+    }
+
+    // 画面表示には actionable な記事（repliedCount 集計済み）を使う
+    articlesWithComments = processComments(actionableArticles, urlname)
   } catch (err) {
     if (!hasCache) {
       content.innerHTML = `<div class="error-banner">エラー: ${escapeHtml(err.message)}</div>`
@@ -541,45 +570,49 @@ async function refresh() {
   content.hidden = false
   isRefreshing = false
   refreshBtn.classList.remove('refreshing')
+  updateFetchWarningIcon()
   render()
 }
+
+// --- Fetch warning icon ---
+
+function updateFetchWarningIcon() {
+  const urlname = getUrlname()
+  const cache = readPreviousCacheRaw(urlname)
+  const meta = cache?.meta || null
+  const btn = $('fetchWarningBtn')
+  if (!btn) return
+  btn.hidden = !shouldShowFetchWarningIcon(meta)
+}
+
+$('fetchWarningBtn')?.addEventListener('click', () => {
+  const urlname = getUrlname()
+  const cache = readPreviousCacheRaw(urlname)
+  const meta = cache?.meta || null
+  const detail = $('fetchWarningDetails')
+  const detailContent = $('fetchWarningDetailContent')
+  if (meta && detail && detailContent) {
+    detail.hidden = false
+    const summary = {
+      取得状況: meta.fetchStatus,
+      停止理由: meta.stoppedReason || '—',
+      記事数: meta.articleCount,
+      ページ数: meta.pageCount,
+      最終取得: meta.finishedAt || '—',
+    }
+    detailContent.innerHTML = `<pre>${escapeHtml(JSON.stringify(summary, null, 2))}</pre>`
+  }
+  openModal($('fetchWarningModal'))
+})
+
+$('fetchWarningCloseBtn')?.addEventListener('click', () => closeModal($('fetchWarningModal')))
 
 // --- Process comments ---
 
 function processComments(articles, urlname) {
   const manualReplied = getManualReplied()
   const mutedUrlnames = getMutedUsers().map((u) => u.urlname)
-
-  return articles
-    .map((article) => {
-      // Filter out own comments and muted users
-      const otherComments = (article.comments || []).filter(
-        (c) => c.user && c.user.urlname !== urlname && !mutedUrlnames.includes(c.user.urlname)
-      )
-
-      // Classify each comment
-      const classified = otherComments.map((c) => {
-        let status = 'unreplied'
-        if (c.is_creator_replied || manualReplied.includes(c.key)) {
-          status = 'replied'
-        } else if (c.is_creator_liked) {
-          status = 'liked'
-        }
-        return { ...c, status }
-      })
-
-      // Sort: unreplied first, then liked, then replied
-      const order = { unreplied: 0, liked: 1, replied: 2 }
-      classified.sort((a, b) => order[a.status] - order[b.status])
-
-      return {
-        ...article,
-        comments: classified,
-        unrepliedCount: classified.filter((c) => c.status !== 'replied').length,
-      }
-    })
-    .filter((a) => a.comments.length > 0)
-    .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))
+  return processCommentsCore(articles, urlname, manualReplied, mutedUrlnames)
 }
 
 // --- Render ---
@@ -591,7 +624,8 @@ function render() {
   // Summary
   const totalUnreplied = articlesWithComments.reduce((sum, a) => sum + a.unrepliedCount, 0)
   const totalComments = articlesWithComments.reduce((sum, a) => sum + a.comments.length, 0)
-  const totalReplied = totalComments - totalUnreplied
+  // 返信済み件数: キャッシュに保持した記事ごとの repliedCount 合計（API 由来）
+  const totalReplied = articlesWithComments.reduce((sum, a) => sum + (a.repliedCount || 0), 0)
 
   // Badge
   document.title = totalUnreplied > 0 ? `(${totalUnreplied}) おへんじ帖` : 'おへんじ帖'
@@ -603,9 +637,9 @@ function render() {
     }
   }
 
-  const toggleBtn = $('toggleRepliedBtn')
+  const repliedLabel = $('repliedCountLabel')
 
-  if (totalComments > 0) {
+  if (totalComments > 0 || totalReplied > 0) {
     summaryBar.hidden = false
     if (totalUnreplied > 0) {
       summaryText.textContent = `${totalUnreplied}件の未返信コメント`
@@ -616,10 +650,12 @@ function render() {
       summaryBar.style.background = 'var(--status-replied-bg)'
       summaryBar.style.color = 'var(--status-replied)'
     }
-    toggleBtn.textContent = showReplied ? '未返信のみ' : `返信済み ${totalReplied}件`
-    toggleBtn.hidden = totalReplied === 0
+    if (repliedLabel) {
+      repliedLabel.textContent = totalReplied > 0 ? `返信済み ${totalReplied}件` : ''
+      repliedLabel.hidden = totalReplied === 0
+    }
     const viewModeBtn = $('viewModeBtn')
-    viewModeBtn.textContent = viewMode === 'articles' ? '記事順' : 'コメント順'
+    if (viewModeBtn) viewModeBtn.textContent = viewMode === 'articles' ? '記事順' : 'コメント順'
   } else {
     summaryBar.hidden = true
   }
@@ -749,9 +785,7 @@ function render() {
       // Flat by comment date
       const flat = []
       for (const article of articlesWithComments) {
-        const visibleComments = showReplied
-          ? article.comments
-          : article.comments.filter((c) => c.status !== 'replied')
+        const visibleComments = article.comments.filter((c) => c.status !== 'replied')
         for (const c of visibleComments) {
           flat.push({ comment: c, article })
         }
@@ -770,9 +804,7 @@ function render() {
     } else {
       // Group by article (default)
       for (const article of articlesWithComments) {
-        const visibleComments = showReplied
-          ? article.comments
-          : article.comments.filter((c) => c.status !== 'replied')
+        const visibleComments = article.comments.filter((c) => c.status !== 'replied')
 
         if (visibleComments.length === 0) continue
         hasVisibleComments = true
@@ -804,7 +836,7 @@ function render() {
   }
 
   // Show chibi reward when all replied (not during refresh)
-  if ((!hasVisibleComments || forceReward) && !isRefreshing) {
+  if (shouldShowPraise(articlesWithComments, { isRefreshing, forceReward })) {
     const picked = pickReward()
     if (picked) {
       const { character, variation, credit, periodId } = picked
@@ -878,13 +910,15 @@ function handleReturn() {
 }
 
 $('replyYesBtn').addEventListener('click', () => {
+  const urlname = getUrlname()
   if (pendingComment) {
-    addManualReplied(pendingComment.commentKey)
+    addManualReplied(pendingComment.commentKey, getManualRepliedContext())
+    // 対応対象キャッシュからも該当コメントを削除（キャッシュは「作業キュー」）
+    removeCommentFromCache(urlname, pendingComment.commentKey)
     pendingComment = null
   }
   closeModal(replyModal)
   // Re-process and render with updated manual replied
-  const urlname = getUrlname()
   const cached = getCache(urlname)
   if (cached) {
     articlesWithComments = processComments(cached, urlname)
@@ -990,7 +1024,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '不具合調査のための機能を追加しました。'
+    'おかしな表示の不具合を修正しました。\n\n・最新のコメントが取得されない\n・1件返信したら全部完了扱いになる\n\nデータの保存容量を最適化し、これらが起きないようにしました。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
@@ -1011,6 +1045,7 @@ $('appVersion').textContent = `おへんじ帖 v${__APP_VERSION__}`
 // --- Init ---
 
 checkVersionUpdate()
+updateFetchWarningIcon()
 
 if (!getUrlname()) {
   openModal(settingsModal)
