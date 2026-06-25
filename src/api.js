@@ -341,7 +341,7 @@ export async function fetchUpdatedCommentsWithMeta(articles, cachedArticles, own
       const cached = cacheMap.get(article.key)
 
       if (cached && cached.commentCount === article.commentCount) {
-        result.push({ ...article, comments: cached.comments })
+        result.push({ ...article, comments: cached.comments, repliedCount: cached.repliedCount })
         continue
       }
 

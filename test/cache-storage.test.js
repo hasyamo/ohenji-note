@@ -106,6 +106,29 @@ describe('filterActionableComments', () => {
     expect(result[1].comments).toHaveLength(1)
   })
 
+  it('repliedCount を各記事に付与する', () => {
+    const articles = [
+      { key: 'a1', comments: [
+        c({ key: 'k1', is_creator_replied: true }),
+        c({ key: 'k2', is_creator_replied: true }),
+        c({ key: 'k3' }),
+      ] },
+      { key: 'a2', comments: [c({ key: 'k4' })] },
+    ]
+    const result = filterActionableComments(articles, 'me')
+    expect(result[0].repliedCount).toBe(2)
+    expect(result[1].repliedCount).toBe(0)
+  })
+
+  it('repliedCount は自分のコメントを除外して数える', () => {
+    const articles = [{ key: 'a1', comments: [
+      c({ key: 'k1', is_creator_replied: true }),
+      c({ key: 'k2', is_creator_replied: true, user: { urlname: 'me' } }),
+    ] }]
+    const result = filterActionableComments(articles, 'me')
+    expect(result[0].repliedCount).toBe(1)
+  })
+
   it('articles が配列でなければ空配列', () => {
     expect(filterActionableComments(null, 'me')).toEqual([])
     expect(filterActionableComments(undefined, 'me')).toEqual([])

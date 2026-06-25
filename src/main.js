@@ -295,7 +295,6 @@ const urlnameInput = $('urlnameInput')
 let articlesWithComments = []
 let isRefreshing = false
 let pendingComment = null // {commentKey, articleKey, commentBody}
-let showReplied = false
 let viewMode = getViewMode() // 'articles' or 'comments'
 
 // --- Modal helpers ---
@@ -476,11 +475,6 @@ saveBtn.addEventListener('click', async () => {
 
 // --- Toggle replied ---
 
-$('toggleRepliedBtn').addEventListener('click', () => {
-  showReplied = !showReplied
-  render()
-})
-
 // --- View mode toggle ---
 
 $('viewModeBtn').addEventListener('click', () => {
@@ -563,8 +557,8 @@ async function refresh() {
       }
     }
 
-    // 画面表示には今回取得できた分を使う（既存ロジック踏襲）
-    articlesWithComments = processComments(commentsRes.result, urlname)
+    // 画面表示には actionable な記事（repliedCount 集計済み）を使う
+    articlesWithComments = processComments(actionableArticles, urlname)
   } catch (err) {
     if (!hasCache) {
       content.innerHTML = `<div class="error-banner">エラー: ${escapeHtml(err.message)}</div>`
@@ -630,7 +624,8 @@ function render() {
   // Summary
   const totalUnreplied = articlesWithComments.reduce((sum, a) => sum + a.unrepliedCount, 0)
   const totalComments = articlesWithComments.reduce((sum, a) => sum + a.comments.length, 0)
-  const totalReplied = totalComments - totalUnreplied
+  // 返信済み件数: キャッシュに保持した記事ごとの repliedCount 合計（API 由来）
+  const totalReplied = articlesWithComments.reduce((sum, a) => sum + (a.repliedCount || 0), 0)
 
   // Badge
   document.title = totalUnreplied > 0 ? `(${totalUnreplied}) おへんじ帖` : 'おへんじ帖'
@@ -642,9 +637,9 @@ function render() {
     }
   }
 
-  const toggleBtn = $('toggleRepliedBtn')
+  const repliedLabel = $('repliedCountLabel')
 
-  if (totalComments > 0) {
+  if (totalComments > 0 || totalReplied > 0) {
     summaryBar.hidden = false
     if (totalUnreplied > 0) {
       summaryText.textContent = `${totalUnreplied}件の未返信コメント`
@@ -655,10 +650,12 @@ function render() {
       summaryBar.style.background = 'var(--status-replied-bg)'
       summaryBar.style.color = 'var(--status-replied)'
     }
-    toggleBtn.textContent = showReplied ? '未返信のみ' : `返信済み ${totalReplied}件`
-    toggleBtn.hidden = totalReplied === 0
+    if (repliedLabel) {
+      repliedLabel.textContent = totalReplied > 0 ? `返信済み ${totalReplied}件` : ''
+      repliedLabel.hidden = totalReplied === 0
+    }
     const viewModeBtn = $('viewModeBtn')
-    viewModeBtn.textContent = viewMode === 'articles' ? '記事順' : 'コメント順'
+    if (viewModeBtn) viewModeBtn.textContent = viewMode === 'articles' ? '記事順' : 'コメント順'
   } else {
     summaryBar.hidden = true
   }
@@ -788,9 +785,7 @@ function render() {
       // Flat by comment date
       const flat = []
       for (const article of articlesWithComments) {
-        const visibleComments = showReplied
-          ? article.comments
-          : article.comments.filter((c) => c.status !== 'replied')
+        const visibleComments = article.comments.filter((c) => c.status !== 'replied')
         for (const c of visibleComments) {
           flat.push({ comment: c, article })
         }
@@ -809,9 +804,7 @@ function render() {
     } else {
       // Group by article (default)
       for (const article of articlesWithComments) {
-        const visibleComments = showReplied
-          ? article.comments
-          : article.comments.filter((c) => c.status !== 'replied')
+        const visibleComments = article.comments.filter((c) => c.status !== 'replied')
 
         if (visibleComments.length === 0) continue
         hasVisibleComments = true
@@ -1031,7 +1024,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '不具合調査のための機能を追加しました。'
+    'おかしな表示の不具合を修正しました。\n\n・最新のコメントが取得されない\n・1件返信したら全部完了扱いになる\n\nデータの保存容量を最適化し、これらが起きないようにしました。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)

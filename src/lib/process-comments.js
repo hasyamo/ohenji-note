@@ -34,7 +34,7 @@ export function processComments(articles, urlname, manualReplied = [], mutedUrln
         unrepliedCount: classified.filter((c) => c.status !== 'replied').length,
       }
     })
-    .filter((a) => a.comments.length > 0)
+    .filter((a) => a.comments.length > 0 || (a.repliedCount || 0) > 0)
     .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))
 }
 

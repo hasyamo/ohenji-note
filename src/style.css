@@ -130,7 +130,6 @@ body {
 }
 
 .summary-toggle {
-  margin-left: auto;
   background: none;
   border: 1px solid currentColor;
   border-radius: 12px;
@@ -148,6 +147,19 @@ body {
 }
 
 .summary-toggle[hidden] {
+  display: none;
+}
+
+.summary-label {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: inherit;
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+.summary-label[hidden] {
   display: none;
 }
 

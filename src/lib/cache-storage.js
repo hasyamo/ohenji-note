@@ -50,20 +50,30 @@ export function approxByteLength(str) {
  * - 作者返信済み (is_creator_replied) は除外
  * - それ以外（未返信／いいね済）は残す
  *
+ * 同時に、記事ごとに「返信済み件数」(repliedCount) を集計してフィールドに残す。
+ * これは満足感の表示（返信済み 242件）のためにキャッシュに保持する数値（本文なし）。
+ *
  * 入力: 記事の配列、所有者の urlname
- * 出力: フィルタ済みの記事配列
+ * 出力: フィルタ済みの記事配列。各記事に repliedCount を含む。
  */
 export function filterActionableComments(articles, ownerUrlname) {
   if (!Array.isArray(articles)) return []
-  return articles.map((a) => ({
-    ...a,
-    comments: (a.comments || []).filter((c) => {
-      if (!c) return false
-      if (c.is_creator_replied) return false
-      if (c.user?.urlname === ownerUrlname) return false
-      return true
-    }),
-  }))
+  return articles.map((a) => {
+    const all = a.comments || []
+    const others = all.filter((c) => c && c.user?.urlname !== ownerUrlname)
+    const actionable = others.filter((c) => !c.is_creator_replied)
+    // is_creator_replied: true のコメントが others に含まれていた場合 = 新規取得
+    // 含まれない場合 = 既にフィルタ済みのキャッシュ流用なので、元の repliedCount を尊重
+    const hasRepliedInPayload = others.some((c) => c.is_creator_replied)
+    const repliedCount = hasRepliedInPayload
+      ? others.filter((c) => c.is_creator_replied).length
+      : (a.repliedCount ?? 0)
+    return {
+      ...a,
+      comments: actionable,
+      repliedCount,
+    }
+  })
 }
 
 /**
