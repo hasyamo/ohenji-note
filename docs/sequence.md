@@ -24,15 +24,15 @@ sequenceDiagram
     Note over main.js: loading表示, content非表示
 
     %% 記事一覧取得（ページネーション）
-    loop 各ページ (6件/ページ固定, per_page指定不可)
+    loop 各ページ (per=18指定で18件/ページ。デフォルト6件・上限20。詳細は note-member-analysis/docs/note-api.md)
         main.js->>api.js: fetchAllArticles(urlname)
-        api.js->>Proxy: GET ?path=/api/v2/creators/{urlname}/contents?kind=note&page={n}
-        Proxy->>Note: GET /api/v2/creators/{urlname}/contents?kind=note&page={n}
-        Note-->>Proxy: {data: {contents: [最大6件], isLastPage}}
+        api.js->>Proxy: GET ?path=/api/v2/creators/{urlname}/contents?kind=note&page={n}&per=18
+        Proxy->>Note: GET /api/v2/creators/{urlname}/contents?kind=note&page={n}&per=18
+        Note-->>Proxy: {data: {contents: [最大18件], isLastPage}}
         Proxy-->>api.js: レスポンス中継
         api.js->>api.js: commentCount > 0 の記事をフィルタ
         api.js->>main.js: onProgress("記事一覧を取得中...")
-        Note over api.js: sleep(500ms) ※次ページがある場合
+        Note over api.js: sleep(200ms) ※次ページがある場合
     end
 
     api.js-->>main.js: articles[] (コメントのある記事のみ)

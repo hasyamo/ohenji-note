@@ -57,7 +57,9 @@ export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress) {
       if (onProgress) onProgress(`記事一覧を取得中... (${articles.length}件)`)
 
       const json = await proxyFetch(
-        `/api/v2/creators/${encodeURIComponent(urlname)}/contents?kind=note&page=${page}`
+        // per=18 は note web の「もっと見る」と同値の安全圏（上限20、超過は0件が返る）
+        // 詳細: note-member-analysis/docs/note-api.md
+        `/api/v2/creators/${encodeURIComponent(urlname)}/contents?kind=note&page=${page}&per=18`
       )
 
       const contents = json.data?.contents || []
