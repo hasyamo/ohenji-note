@@ -1024,7 +1024,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'おかしな表示の不具合を修正しました。\n\n・最新のコメントが取得されない\n・1件返信したら全部完了扱いになる\n\nデータの保存容量を最適化し、これらが起きないようにしました。'
+    '更新（リフレッシュ）を高速化しました。\n\n記事一覧の読み込みが約3倍速くなり、記事数が多い方ほど待ち時間が短くなります。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
