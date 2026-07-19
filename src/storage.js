@@ -121,6 +121,44 @@ export function setLegacyCommentsVisible(visible) {
   localStorage.setItem(LEGACY_COMMENTS_VISIBLE_KEY, visible ? 'true' : 'false')
 }
 
+// Seasonal outfit setting (default ON) — local only, never sent to D1
+const SEASONAL_OUTFIT_KEY = 'ncm_seasonal_outfit'
+
+export function getSeasonalOutfitEnabled() {
+  return localStorage.getItem(SEASONAL_OUTFIT_KEY) !== 'false'
+}
+
+export function setSeasonalOutfitEnabled(enabled) {
+  localStorage.setItem(SEASONAL_OUTFIT_KEY, enabled ? 'true' : 'false')
+}
+
+// Seasonal outfit unlocks cache — { noteId, updatedAt, unlocks: { season: [characterId] } }
+// D1 が正で、これは通信失敗時のフォールバック用。
+const OUTFIT_UNLOCKS_KEY = 'ncm_outfit_unlocks'
+
+export function getOutfitUnlocks(noteId) {
+  try {
+    const raw = localStorage.getItem(OUTFIT_UNLOCKS_KEY)
+    if (!raw) return null
+    const cache = JSON.parse(raw)
+    if (!cache || cache.noteId !== noteId) return null
+    return cache.unlocks || null
+  } catch {
+    return null
+  }
+}
+
+export function setOutfitUnlocks(noteId, unlocks) {
+  try {
+    localStorage.setItem(
+      OUTFIT_UNLOCKS_KEY,
+      JSON.stringify({ noteId, updatedAt: new Date().toISOString(), unlocks })
+    )
+  } catch {
+    // localStorage full — 次回の通信で復帰できるので握りつぶす
+  }
+}
+
 // View mode: 'articles' (group by article) or 'comments' (flat by comment date)
 const VIEW_MODE_KEY = 'ncm_view_mode'
 

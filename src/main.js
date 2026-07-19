@@ -1,5 +1,5 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents } from './storage.js'
+import { getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents, getSeasonalOutfitEnabled, setSeasonalOutfitEnabled, getOutfitUnlocks, setOutfitUnlocks } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta, shouldShowFetchWarningIcon } from './lib/fetch-meta.js'
 import { filterActionableComments } from './lib/cache-storage.js'
@@ -38,6 +38,7 @@ function getManualRepliedContext() {
 }
 import charactersData from './rewards/characters.json'
 import collabPeriods from './rewards/collab/periods.json'
+import { fetchOutfitUnlocks, resolveOutfitSeason } from './lib/seasonal-outfit.js'
 
 // Load all collab character files via glob (keyed by file path)
 const collabModules = import.meta.glob('./rewards/collab/*.json', { eager: true, import: 'default' })
@@ -49,6 +50,21 @@ function getCollabCharacters(periodId) {
     if (fileName === periodId) return data
   }
   return null
+}
+
+// --- Seasonal outfit unlocks ---
+
+// 褒め演出の描画は同期なので、解放状態はメモリに持っておく。
+// 起動時にキャッシュで即座に埋め、そのあと通信で上書きする。
+let outfitUnlocks = getOutfitUnlocks(getUrlname()) || {}
+
+const outfitStorage = { getOutfitUnlocks, setOutfitUnlocks }
+
+async function loadOutfitUnlocks() {
+  const noteId = getUrlname()
+  if (!noteId) return
+  const { unlocks } = await fetchOutfitUnlocks(noteId, outfitStorage)
+  outfitUnlocks = unlocks
 }
 
 // --- Reward selection (unreplied-zero chibi演出) ---
@@ -369,6 +385,7 @@ function renderMutedUsers() {
 
 const ringVisibleToggle = $('ringVisibleToggle')
 const legacyCommentsToggle = $('legacyCommentsToggle')
+const seasonalOutfitToggle = $('seasonalOutfitToggle')
 
 $('settingsBtn').addEventListener('click', () => {
   urlnameInput.value = getUrlname()
@@ -376,6 +393,7 @@ $('settingsBtn').addEventListener('click', () => {
   renderMutedUsers()
   ringVisibleToggle.checked = getRingVisible()
   legacyCommentsToggle.checked = getLegacyCommentsVisible()
+  seasonalOutfitToggle.checked = getSeasonalOutfitEnabled()
   openModal(settingsModal)
 })
 
@@ -436,6 +454,7 @@ const saveBtn = $('settingsSaveBtn')
 saveBtn.addEventListener('click', async () => {
   const urlname = urlnameInput.value.trim()
   if (!urlname) return
+  const previousUrlname = getUrlname()
   clearSettingsError()
   saveBtn.disabled = true
   saveBtn.textContent = '確認中...'
@@ -459,6 +478,13 @@ saveBtn.addEventListener('click', async () => {
     setLegacyCommentsVisible(newLegacyVisible)
     if (newLegacyVisible !== wasLegacyVisible) {
       saveCache(urlname, [])
+    }
+    // Seasonal outfit toggle (local only — D1 には送らない)
+    setSeasonalOutfitEnabled(seasonalOutfitToggle.checked)
+    // note ID が変わったら解放状態を取り直す
+    if (urlname !== previousUrlname) {
+      outfitUnlocks = getOutfitUnlocks(urlname) || {}
+      loadOutfitUnlocks()
     }
     closeModal(settingsModal)
     refresh()
@@ -840,7 +866,17 @@ function render() {
     const picked = pickReward()
     if (picked) {
       const { character, variation, credit, periodId } = picked
-      const chibiDir = character.isCollab ? 'icons/chibi/collab/' : 'icons/chibi/'
+      const outfitSeason = resolveOutfitSeason({
+        character,
+        dateStr: getDateStringJst(),
+        unlocks: outfitUnlocks,
+        enabled: getSeasonalOutfitEnabled(),
+      })
+      const chibiDir = character.isCollab
+        ? 'icons/chibi/collab/'
+        : outfitSeason
+          ? `icons/chibi/${outfitSeason}/`
+          : 'icons/chibi/'
       const chibiSrc = `${import.meta.env.BASE_URL}${chibiDir}${character.fileName}?v=${__APP_VERSION__}`
 
       const creditHtml = credit
@@ -1024,7 +1060,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '更新（リフレッシュ）を高速化しました。\n\n記事一覧の読み込みが約3倍速くなり、記事数が多い方ほど待ち時間が短くなります。'
+    'ちびキャラの季節衣装の仕組みを追加しました。\n\n詳細は近日中に記事で公開します。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
@@ -1050,5 +1086,6 @@ updateFetchWarningIcon()
 if (!getUrlname()) {
   openModal(settingsModal)
 } else {
+  loadOutfitUnlocks()
   refresh()
 }

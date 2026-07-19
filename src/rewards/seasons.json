@@ -1,0 +1,6 @@
+[
+  { "id": "spring", "name": "春", "months": [3, 4, 5] },
+  { "id": "summer", "name": "夏", "months": [6, 7, 8] },
+  { "id": "autumn", "name": "秋", "months": [9, 10, 11] },
+  { "id": "winter", "name": "冬", "months": [12, 1, 2] }
+]
