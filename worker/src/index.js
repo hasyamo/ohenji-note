@@ -17,6 +17,34 @@ const ALLOWED_PATHS = [
   '/api/v3/notes/',
 ]
 
+// --- GraphQLアーカイブ転送（YOMIASA 600件上限フォールバック用） ---
+// note contents API はサーバ側で約600件で打ち切られる（totalCountも丸められる）。
+// 月別アーカイブのGraphQLは壁の外の記事メタデータを返すため、その転送口。
+// クエリはWorker側で固定し、クライアントには urlname / year / after しか渡させない。
+const ARCHIVES_QUERY = `query CreatorArchivesPageQuery($urlname: Urlname!, $year: Int!, $first: Int!, $after: String) {
+  noteArchivesConnectionByUrlname(urlname: $urlname, year: $year, first: $first, after: $after) {
+    edges {
+      node {
+        key
+        common {
+          publishedAt
+          likeCount
+          commentCount
+          link { absoluteUrl }
+        }
+        openContents {
+          __typename
+          ... on NoteTextOpenContents {
+            title
+            thumbnailImage { url }
+          }
+        }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -30,6 +58,11 @@ export default {
     // Handle preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders })
+    }
+
+    // --- GraphQLアーカイブ転送（YOMIASA用） ---
+    if (url.pathname === '/graphql/archives' && request.method === 'POST') {
+      return handleGraphqlArchives(request)
     }
 
     // --- おへんじ帖の輪 API ---
@@ -128,6 +161,56 @@ export default {
 // Valid urlname: alphanumeric, underscore, hyphen, dot only
 function isValidUrlname(name) {
   return /^[a-zA-Z0-9_.\-]+$/.test(name) && !name.includes('http')
+}
+
+// GraphQLアーカイブ転送。body: { urlname, year, after }
+// クエリは ARCHIVES_QUERY 固定。1ページ50件。after は cursor 文字列。
+async function handleGraphqlArchives(request) {
+  const badRequest = (msg) =>
+    new Response(JSON.stringify({ error: msg }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return badRequest('Invalid JSON')
+  }
+
+  const urlname = body?.urlname
+  const year = body?.year
+  const after = body?.after ?? null
+
+  if (typeof urlname !== 'string' || !isValidUrlname(urlname)) {
+    return badRequest('Invalid urlname')
+  }
+  if (!Number.isInteger(year) || year < 2010 || year > 2100) {
+    return badRequest('Invalid year')
+  }
+  if (after !== null && (typeof after !== 'string' || after.length > 500)) {
+    return badRequest('Invalid after')
+  }
+
+  const res = await fetch('https://graphql.note.com/graphql', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({
+      query: ARCHIVES_QUERY,
+      variables: { urlname, year, first: 50, after },
+    }),
+  })
+
+  const text = await res.text()
+  return new Response(text, {
+    status: res.status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
 }
 
 // Cleanup: remove invalid entries from KV and rebuild userlist
