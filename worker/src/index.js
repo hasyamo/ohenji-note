@@ -39,6 +39,10 @@ const ARCHIVES_QUERY = `query CreatorArchivesPageQuery($urlname: Urlname!, $year
             thumbnailImage { url }
           }
         }
+        pricing {
+          isFree
+          hasNoPaidContent
+        }
       }
     }
     pageInfo { hasNextPage endCursor }
