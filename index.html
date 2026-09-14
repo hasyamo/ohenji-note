@@ -104,7 +104,7 @@
         <p class="modal-hint">設定画面の<strong>note ID</strong>を入力</p>
         <img src="images/note-id-help.png" alt="note IDの確認方法" style="width:100%;max-width:200px;margin-top:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
         <p class="modal-error" id="settingsError" hidden></p>
-        <label class="modal-label" for="rangeSelect" style="margin-top: 20px">取得範囲</label>
+        <label class="modal-label" for="rangeSelect" style="margin-top: 20px">記事の取得範囲</label>
         <select id="rangeSelect" class="modal-input">
           <option value="30">過去30日</option>
           <option value="90">過去90日</option>
@@ -116,7 +116,7 @@
           <span class="ring-toggle-label">期間外の固定記事も含める</span>
           <input type="checkbox" id="includePinnedToggle" class="ring-toggle-input" checked />
         </div>
-        <p class="modal-hint">固定記事は公開日が取得範囲より前でも返信チェックの対象になります</p>
+        <p class="modal-hint">固定記事は公開日が記事の取得範囲より前でも返信チェックの対象になります</p>
         <label class="modal-label" style="margin-top: 20px">非表示ユーザー</label>
         <div class="muted-list" id="mutedUsersList"></div>
         <label class="modal-label" style="margin-top: 20px">おへんじ帖の輪</label>
