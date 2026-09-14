@@ -1,5 +1,6 @@
 import { sleep } from './utils.js'
 import { emptyFetchMeta, appendPageLog, markFetchComplete, markFetchPartial, markFetchFailed } from './lib/fetch-meta.js'
+import { sortByPublishAtDesc, calcCutoff, isOutsideRange } from './lib/article-range.js'
 
 const PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/'
 
@@ -48,7 +49,7 @@ export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress) {
   const articles = []
   let page = 1
   let isLastPage = false
-  const cutoff = rangeDays > 0 ? Date.now() - rangeDays * 86400000 : 0
+  const cutoff = calcCutoff(rangeDays)
   let meta = { ...emptyFetchMeta(), startedAt: new Date().toISOString() }
   let stoppedReason = null
 
@@ -58,11 +59,13 @@ export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress) {
 
       const json = await proxyFetch(
         // per=18 は note web の「もっと見る」と同値の安全圏（上限20、超過は0件が返る）
-        // 詳細: note-member-analysis/docs/note-api.md
+        // 詳細: hasyamo-vault/70_projects/note/guides/note-api.md
         `/api/v2/creators/${encodeURIComponent(urlname)}/contents?kind=note&page=${page}&per=18`
       )
 
-      const contents = json.data?.contents || []
+      // ピン留め記事が先頭に固定されて返るため、公開日降順へ正規化してから走査する。
+      // これを怠ると古いピン留め記事で期間判定が early break する。
+      const contents = sortByPublishAtDesc(json.data?.contents || [])
       const apiIsLastPage = json.data?.isLastPage ?? true
 
       if (contents.length === 0) {
@@ -74,7 +77,7 @@ export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress) {
       let reachedCutoff = false
       let addedInPage = 0
       for (const article of contents) {
-        if (!article.isPinned && cutoff > 0 && new Date(article.publishAt).getTime() < cutoff) {
+        if (!article.isPinned && isOutsideRange(article, cutoff)) {
           reachedCutoff = true
           break
         }
