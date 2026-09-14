@@ -1,5 +1,5 @@
 import './style.css'
-import { getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents, getSeasonalOutfitEnabled, setSeasonalOutfitEnabled, getOutfitUnlocks, setOutfitUnlocks } from './storage.js'
+import { getIncludePinnedOutsideRange, setIncludePinnedOutsideRange, getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents, getSeasonalOutfitEnabled, setSeasonalOutfitEnabled, getOutfitUnlocks, setOutfitUnlocks } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
 import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta, shouldShowFetchWarningIcon } from './lib/fetch-meta.js'
 import { filterActionableComments } from './lib/cache-storage.js'
@@ -386,10 +386,12 @@ function renderMutedUsers() {
 const ringVisibleToggle = $('ringVisibleToggle')
 const legacyCommentsToggle = $('legacyCommentsToggle')
 const seasonalOutfitToggle = $('seasonalOutfitToggle')
+const includePinnedToggle = $('includePinnedToggle')
 
 $('settingsBtn').addEventListener('click', () => {
   urlnameInput.value = getUrlname()
   rangeSelect.value = String(getRangeDays())
+  includePinnedToggle.checked = getIncludePinnedOutsideRange()
   renderMutedUsers()
   ringVisibleToggle.checked = getRingVisible()
   legacyCommentsToggle.checked = getLegacyCommentsVisible()
@@ -415,6 +417,7 @@ $('supportCopyBtn').addEventListener('click', async () => {
       settings: {
         urlname,
         rangeDays: getRangeDays(),
+        includePinnedOutsideRange: getIncludePinnedOutsideRange(),
         ringVisible: getRingVisible(),
         legacyCommentsVisible: getLegacyCommentsVisible(),
         viewMode: getViewMode(),
@@ -477,6 +480,14 @@ saveBtn.addEventListener('click', async () => {
     const wasLegacyVisible = getLegacyCommentsVisible()
     setLegacyCommentsVisible(newLegacyVisible)
     if (newLegacyVisible !== wasLegacyVisible) {
+      saveCache(urlname, [])
+    }
+    // 期間外の固定記事トグル: 変更時はキャッシュを捨てて取り直す
+    // （OFF にしたとき、キャッシュ済みの期間外固定記事が残り続けるのを防ぐ）
+    const newIncludePinned = includePinnedToggle.checked
+    const wasIncludePinned = getIncludePinnedOutsideRange()
+    setIncludePinnedOutsideRange(newIncludePinned)
+    if (newIncludePinned !== wasIncludePinned) {
       saveCache(urlname, [])
     }
     // Seasonal outfit toggle (local only — D1 には送らない)
@@ -545,7 +556,7 @@ async function refresh() {
     const rangeDays = getRangeDays()
     const articlesRes = await fetchAllArticlesWithMeta(urlname, rangeDays, (msg) => {
       loadingText.textContent = msg
-    })
+    }, { includePinnedOutsideRange: getIncludePinnedOutsideRange() })
 
     const legacyVisible = getLegacyCommentsVisible()
     const commentsRes = await fetchUpdatedCommentsWithMeta(articlesRes.articles, cachedArticles, urlname, legacyVisible, (msg) => {
@@ -846,8 +857,10 @@ function render() {
           ? `${article.unrepliedCount}件未返信`
           : '返信済み'
 
+        const pinnedBadge = article.isPinned ? '<span class="article-pinned">📌 固定</span>' : ''
         header.innerHTML = `
           <span class="article-title">${escapeHtml(article.title)}</span>
+          ${pinnedBadge}
           <span class="article-count ${countClass}">${countLabel}</span>
         `
         section.appendChild(header)

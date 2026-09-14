@@ -99,6 +99,19 @@ export function setRangeDays(days) {
   localStorage.setItem(RANGE_KEY, String(days))
 }
 
+// Include pinned articles that fall outside the fetch range (default true).
+// 固定記事は古くても露出し続けるため新しいコメントが付きやすい。
+// 「返信し忘れを拾う」というアプリの目的上、取りこぼさない側をデフォルトにする。
+const INCLUDE_PINNED_OUTSIDE_RANGE_KEY = 'ncm_include_pinned_outside_range'
+
+export function getIncludePinnedOutsideRange() {
+  return localStorage.getItem(INCLUDE_PINNED_OUTSIDE_RANGE_KEY) !== 'false'
+}
+
+export function setIncludePinnedOutsideRange(include) {
+  localStorage.setItem(INCLUDE_PINNED_OUTSIDE_RANGE_KEY, include ? 'true' : 'false')
+}
+
 // Ring visibility setting
 const RING_VISIBLE_KEY = 'ncm_ring_visible'
 

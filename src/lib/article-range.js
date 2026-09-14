@@ -47,3 +47,23 @@ export function isOutsideRange(article, cutoff) {
   if (!(cutoff > 0)) return false
   return new Date(article.publishAt).getTime() < cutoff
 }
+
+/**
+ * 記事を取得範囲の理由で除外すべきか判定する。
+ *
+ * 読み方は「期間外は除外する。ただし設定で許可された固定記事だけ例外にする」。
+ * 「固定記事でなければ期間を見る」ではないことに注意——
+ * 主語は固定記事ではなく期間であり、固定記事の扱いはユーザー設定の結果にすぎない。
+ *
+ * @param {object} article - publishAt / isPinned を持つ記事
+ * @param {number} cutoff - calcCutoff() の戻り値
+ * @param {boolean} includePinnedOutsideRange - 期間外の固定記事も含めるか
+ * @returns {boolean} true なら取得範囲外として打ち切る
+ */
+export function shouldStopForRange(article, cutoff, includePinnedOutsideRange) {
+  if (!isOutsideRange(article, cutoff)) return false
+
+  // 期間外。設定で許可された固定記事だけが例外として生き残る。
+  const allowedAsPinnedException = !!article.isPinned && includePinnedOutsideRange
+  return !allowedAsPinnedException
+}

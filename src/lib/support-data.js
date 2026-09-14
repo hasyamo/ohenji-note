@@ -4,7 +4,7 @@
  * 入力:
  *   - input: {
  *       appVersion, buildHash, exportedAt, userAgent,
- *       settings: { urlname, rangeDays, ringVisible, legacyCommentsVisible, viewMode, mutedUsers },
+ *       settings: { urlname, rangeDays, includePinnedOutsideRange, ringVisible, legacyCommentsVisible, viewMode, mutedUsers },
  *       cache: { articles: [...] } | null,
  *       manualRepliedEntries: 新形式エントリ配列,
  *       debugEvents: リングバッファの内容,
@@ -76,6 +76,7 @@ export function buildSupportData(input = {}) {
     settings: {
       urlname: settings.urlname ?? null,
       rangeDays: settings.rangeDays ?? null,
+      includePinnedOutsideRange: settings.includePinnedOutsideRange ?? null,
       ringVisible: settings.ringVisible ?? null,
       legacyCommentsVisible: settings.legacyCommentsVisible ?? null,
       viewMode: settings.viewMode ?? null,

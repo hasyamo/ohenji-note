@@ -1,6 +1,6 @@
 import { sleep } from './utils.js'
 import { emptyFetchMeta, appendPageLog, markFetchComplete, markFetchPartial, markFetchFailed } from './lib/fetch-meta.js'
-import { sortByPublishAtDesc, calcCutoff, isOutsideRange } from './lib/article-range.js'
+import { sortByPublishAtDesc, calcCutoff, isOutsideRange, shouldStopForRange } from './lib/article-range.js'
 
 const PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/'
 
@@ -32,8 +32,8 @@ export async function validateCreator(urlname) {
  * 後方互換のため articles 配列だけを返す。
  * 内部で fetchAllArticlesWithMeta を呼び出す。
  */
-export async function fetchAllArticles(urlname, rangeDays, onProgress) {
-  const { articles } = await fetchAllArticlesWithMeta(urlname, rangeDays, onProgress)
+export async function fetchAllArticles(urlname, rangeDays, onProgress, options = {}) {
+  const { articles } = await fetchAllArticlesWithMeta(urlname, rangeDays, onProgress, options)
   return articles
 }
 
@@ -45,7 +45,8 @@ export async function fetchAllArticles(urlname, rangeDays, onProgress) {
  *   - 'partial'  … cutoff(範囲外)で打ち切った、または途中で空ページを得た
  *   - 'failed'   … 例外で停止
  */
-export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress) {
+export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress, options = {}) {
+  const { includePinnedOutsideRange = true } = options
   const articles = []
   let page = 1
   let isLastPage = false
@@ -77,9 +78,16 @@ export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress) {
       let reachedCutoff = false
       let addedInPage = 0
       for (const article of contents) {
-        if (!article.isPinned && isOutsideRange(article, cutoff)) {
+        if (shouldStopForRange(article, cutoff, includePinnedOutsideRange)) {
           reachedCutoff = true
           break
+        }
+        // 期間外だがピン留め例外で生き残った記事。降順ソート済みなので、
+        // ここから先に範囲内の記事は現れない＝この時点で範囲は見終わっている。
+        // ただし同一ページ内の後続の例外記事は拾いたいので break せず、
+        // 「範囲は終わった」ことだけ記録してページ末尾まで走査を続ける。
+        if (isOutsideRange(article, cutoff)) {
+          reachedCutoff = true
         }
         if (article.commentCount > 0) {
           articles.push({
@@ -89,6 +97,7 @@ export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress) {
             commentCount: article.commentCount,
             publishedAt: article.publishAt,
             urlname: urlname,
+            isPinned: !!article.isPinned,
           })
           addedInPage++
         }
