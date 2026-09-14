@@ -1073,7 +1073,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'ちびキャラの季節衣装の仕組みを追加しました。\n\n詳細は近日中に記事で公開します。'
+    '固定記事に「📌 固定」を表示するようにしました。\n\n取得範囲より前に公開した固定記事も、これまでどおり返信チェックの対象です。含めたくない場合は設定からオフにできます。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
