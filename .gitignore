@@ -1,2 +1,7 @@
 node_modules
 dist
+
+# .mio 交換箱: handoff/result とそのアーカイブは Git 管理しない（README.md のみ管理）
+.mio/handoff.md
+.mio/result.md
+.mio/history/
