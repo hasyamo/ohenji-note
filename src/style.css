@@ -1659,3 +1659,38 @@ body {
   padding: 0;
   min-height: 0;
 }
+
+/* --- 未返信ゼロの演出: PC 幅では白いカードにまとめ、ちびキャラとセリフを横に並べる --- */
+
+@media (min-width: 900px) {
+  .content > .chibi-reward {
+    flex-direction: row;
+    justify-content: center;
+    gap: 40px;
+    padding: 40px 48px;
+    margin-top: 8px;
+    background: var(--surface-bright);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  .chibi-reward img {
+    max-width: 240px;
+  }
+
+  .chibi-reward__text {
+    margin-top: 0;
+    max-width: 360px;
+    align-items: flex-start;
+  }
+
+  .chibi-reward__line {
+    font-size: 16px;
+    text-align: left;
+    padding: 14px 20px;
+  }
+
+  .chibi-reward__credit {
+    align-self: flex-start;
+  }
+}
