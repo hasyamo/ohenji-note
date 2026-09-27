@@ -77,3 +77,12 @@ export function formatUpdatedAt(isoDate, now = new Date()) {
   const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
   return sameDay ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`
 }
+
+/**
+ * 取得の進捗メッセージから記事タイトルを除いた短い形にする（最終更新の行に出す用）。
+ * 「コメント取得中... (12/280) タイトル」→「コメント取得中... (12/280)」
+ */
+export function shortProgress(msg) {
+  const m = String(msg || '').match(/^(.+?\(\d+(?:\/\d+|件)\))/)
+  return m ? m[1] : String(msg || '')
+}

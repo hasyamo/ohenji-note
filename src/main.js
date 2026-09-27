@@ -3,7 +3,7 @@ import { getIncludePinnedOutsideRange, setIncludePinnedOutsideRange, getUrlname,
 import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing, fetchThreadConversation } from './api.js'
 import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta, shouldShowFetchWarningIcon } from './lib/fetch-meta.js'
 import { filterActionableComments } from './lib/cache-storage.js'
-import { parseComment, relativeTime, escapeHtml, formatUpdatedAt } from './utils.js'
+import { parseComment, relativeTime, escapeHtml, formatUpdatedAt, shortProgress } from './utils.js'
 import { processComments as processCommentsCore } from './lib/process-comments.js'
 import { shouldShowPraise } from './lib/should-show-praise.js'
 import { buildSupportData } from './lib/support-data.js'
@@ -567,6 +567,7 @@ async function refresh({ refetchPending = false } = {}) {
   }
 
   isRefreshing = true
+  refreshProgress = ''
   refreshBtn.classList.add('refreshing')
   renderUpdateStatus()
 
@@ -588,9 +589,7 @@ async function refresh({ refetchPending = false } = {}) {
 
   try {
     const rangeDays = getRangeDays()
-    const articlesRes = await fetchAllArticlesWithMeta(urlname, rangeDays, (msg) => {
-      loadingText.textContent = msg
-    }, { includePinnedOutsideRange: getIncludePinnedOutsideRange() })
+    const articlesRes = await fetchAllArticlesWithMeta(urlname, rangeDays, showProgress, { includePinnedOutsideRange: getIncludePinnedOutsideRange() })
 
     // 返信の追跡開始時刻。まだ無ければ今回が基準化の取得になり、今より前の返信は「既存」扱い
     const savedTrackingStart = getReplyTrackingStartedAt(urlname)
@@ -598,9 +597,7 @@ async function refresh({ refetchPending = false } = {}) {
     const replyTrackingSince = savedTrackingStart || new Date().toISOString()
 
     const legacyVisible = getLegacyCommentsVisible()
-    const commentsRes = await fetchUpdatedCommentsWithMeta(articlesRes.articles, cachedArticles, urlname, legacyVisible, (msg) => {
-      loadingText.textContent = msg
-    }, { manualKeys: getManualReplied(), replyBaseline, refetchPending })
+    const commentsRes = await fetchUpdatedCommentsWithMeta(articlesRes.articles, cachedArticles, urlname, legacyVisible, showProgress, { manualKeys: getManualReplied(), replyBaseline, refetchPending })
 
     // 取得結果から fetchMeta を合成
     const combinedMeta = mergeFetchMeta(articlesRes.fetchMeta, commentsRes.fetchMeta)
@@ -666,12 +663,21 @@ async function refresh({ refetchPending = false } = {}) {
 // --- 最終更新・更新結果 ---
 
 let lastRefreshFailed = false
+let refreshProgress = '' // 更新中の進み具合（記事タイトルを除いた短い形）
+
+// 取得中の進み具合を出す。キャッシュが無いときは中央の読み込み表示、
+// キャッシュがあるとき（一覧を出したまま裏で更新しているとき）は最終更新の行に出す
+function showProgress(msg) {
+  loadingText.textContent = msg
+  refreshProgress = shortProgress(msg)
+  renderUpdateStatus()
+}
 
 function renderUpdateStatus() {
   const el = $('updateStatus')
   if (!el) return
   if (isRefreshing) {
-    el.textContent = '更新中…'
+    el.textContent = refreshProgress ? `更新中… ${refreshProgress}` : '更新中…'
     el.hidden = false
     return
   }
