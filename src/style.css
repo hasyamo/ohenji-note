@@ -251,6 +251,11 @@ body {
   gap: 10px;
 }
 
+/* display: grid が hidden 属性より強いので、隠すときは明示的に消す（読み込み中に空のカードが出ていた） */
+.summary-bar[hidden] {
+  display: none;
+}
+
 .stat-card {
   display: flex;
   align-items: center;
