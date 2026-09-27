@@ -13,6 +13,7 @@
  * 出力: サポートデータJSONのオブジェクト
  */
 import { buildSuspiciousManualGroups } from './manual-replied.js'
+import { threadsOf } from './reply-thread.js'
 
 export function buildSupportData(input = {}) {
   const {
@@ -40,6 +41,18 @@ export function buildSupportData(input = {}) {
       is_creator_liked: c.is_creator_liked,
       legacy: !!c._legacy,
     })),
+    // 返信スレッド: 本文は含めず、件数と対応待ちの返信の key・状態だけ
+    threads: threadsOf(a)
+      ? threadsOf(a).map((t) => ({
+          rootKey: t.rootKey,
+          replyCount: t.replyCount,
+          pending: (t.pending || []).map((r) => ({
+            key: r.key,
+            user: r.user?.urlname,
+            status: r.status,
+          })),
+        }))
+      : null,
   }))
 
   const allComments = articles.flatMap((a) => a.comments)
@@ -81,6 +94,7 @@ export function buildSupportData(input = {}) {
       legacyCommentsVisible: settings.legacyCommentsVisible ?? null,
       viewMode: settings.viewMode ?? null,
       mutedUsers: settings.mutedUsers ?? [],
+      replyTrackingStartedAt: settings.replyTrackingStartedAt ?? null,
     },
     stats,
     fetchMeta,

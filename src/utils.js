@@ -66,3 +66,14 @@ export function escapeHtml(str) {
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+/**
+ * Format ISO date string for "最終更新" (HH:MM today, M/D HH:MM otherwise).
+ */
+export function formatUpdatedAt(isoDate, now = new Date()) {
+  const d = new Date(isoDate)
+  if (Number.isNaN(d.getTime())) return ''
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  return sameDay ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`
+}

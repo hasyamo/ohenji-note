@@ -5,7 +5,8 @@
  *   {
  *     key:        コメントキー (string)
  *     markedAt:   ISO8601 文字列 (string | null)
- *     source:     'reply-button' | 'legacy-array-migration' (string)
+ *     source:     'reply-button' | 'reply-thread' | 'legacy-array-migration' (string)
+ *                 'reply-thread' は返信スレッドの対応済み印。1操作で複数件を記録するのが正常
  *     clickSeq:   そのセッションで何回目のクリックか (number | null)
  *     eventId:    クリックを束ねる識別子 (string | null)
  *     appVersion: 記録時のアプリバージョン (string | null)
@@ -96,7 +97,7 @@ export function addManualRepliedEntry(entries, key, context = {}) {
 
   // 異常検知: 同じ eventId が既に他のエントリに付いていれば「1クリックで複数件追加」
   let debugEvent = null
-  if (eventId) {
+  if (eventId && source !== 'reply-thread') {
     const sameEvent = nextEntries.filter((e) => e.eventId === eventId)
     if (sameEvent.length > 1) {
       debugEvent = {
@@ -121,6 +122,7 @@ export function buildSuspiciousManualGroups(entries) {
   const byEventId = new Map()
   for (const e of entries) {
     if (!e.eventId) continue
+    if (e.source === 'reply-thread') continue
     if (!byEventId.has(e.eventId)) byEventId.set(e.eventId, [])
     byEventId.get(e.eventId).push(e)
   }

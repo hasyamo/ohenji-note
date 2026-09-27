@@ -1,6 +1,7 @@
 import { sleep } from './utils.js'
 import { emptyFetchMeta, appendPageLog, markFetchComplete, markFetchPartial, markFetchFailed } from './lib/fetch-meta.js'
 import { sortByPublishAtDesc, calcCutoff, isOutsideRange, shouldStopForRange } from './lib/article-range.js'
+import { planThreadFetch, shouldRefetchArticle, threadsOf } from './lib/reply-thread.js'
 
 const PROXY_URL = 'https://falling-mouse-736b.hasyamo.workers.dev/'
 
@@ -154,7 +155,8 @@ export async function fetchAllArticlesWithMeta(urlname, rangeDays, onProgress, o
 // Articles published before this use the legacy flat comments endpoint.
 const COMMENT_FORMAT_SWITCH = '2025-09-08T10:00:00+09:00'
 
-function isLegacyArticle(publishedAt) {
+export function isLegacyArticle(publishedAt) {
+  if (!publishedAt) return false
   return new Date(publishedAt).getTime() < new Date(COMMENT_FORMAT_SWITCH).getTime()
 }
 
@@ -179,6 +181,61 @@ async function fetchCommentsThreaded(noteKey) {
   }
 
   return comments
+}
+
+// Replies of one root: parent_key を付けるとスレッド全体（返信への返信も含む）がフラットに返る
+async function fetchReplies(noteKey, rootKey) {
+  const replies = []
+  let page = 1
+
+  while (true) {
+    const json = await proxyFetch(
+      `/api/v3/notes/${encodeURIComponent(noteKey)}/note_comments?per_page=100&page=${page}&parent_key=${encodeURIComponent(rootKey)}&order=oldest`
+    )
+
+    const data = json.data || []
+    if (data.length === 0) break
+
+    replies.push(...data)
+
+    if (!json.next_page) break
+    page++
+    await sleep(200)
+  }
+
+  return replies
+}
+
+/**
+ * スレッドの会話（ルート＋返信）を取得する。会話はキャッシュに持たないので、
+ * スレッドを開いたときに呼ぶ。ルートはルート一覧から探す。
+ */
+export async function fetchThreadConversation(noteKey, rootKey) {
+  const replies = await fetchReplies(noteKey, rootKey)
+  await sleep(200)
+  const roots = await fetchCommentsThreaded(noteKey)
+  const root = roots.find((r) => r.key === rootKey) || null
+  return { root, replies }
+}
+
+/**
+ * 新形式の記事のスレッドを組み立てる。
+ * reply_count > 0 のルートのうち、キャッシュと reply_count が変わったものだけ返信を取り直す。
+ * 返信を取らなくても対応待ちが無いと分かるスレッドは取らない（canSkipReplyFetch）。
+ */
+async function fetchThreads(noteKey, roots, cachedThreads, ownerUrlname, baseline, onReplyProgress) {
+  const { toFetch, reused } = planThreadFetch(roots, cachedThreads, ownerUrlname, { baseline })
+  const fetched = []
+  for (let i = 0; i < toFetch.length; i++) {
+    const root = toFetch[i]
+    if (onReplyProgress) onReplyProgress(i + 1, toFetch.length)
+    await sleep(200)
+    const replies = await fetchReplies(noteKey, root.key)
+    fetched.push({ rootKey: root.key, replyCount: root.reply_count, root, replies })
+  }
+  // ルート一覧の並び（新しい順）に揃える
+  const byKey = new Map([...reused, ...fetched].map((t) => [t.rootKey, t]))
+  return roots.filter((r) => byKey.has(r.key)).map((r) => byKey.get(r.key))
 }
 
 // Legacy format: /api/v3/notes/{key}/comments
@@ -318,21 +375,31 @@ export async function optInRing(urlname) {
 
 /**
  * Fetch comments with cache diff.
- * Only fetches comments for articles whose commentCount changed.
+ * Only fetches comments for articles that need it (see shouldRefetchArticle).
  */
-export async function fetchUpdatedComments(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress) {
-  const { result } = await fetchUpdatedCommentsWithMeta(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress)
+export async function fetchUpdatedComments(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress, options = {}) {
+  const { result } = await fetchUpdatedCommentsWithMeta(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress, options)
   return result
 }
 
 /**
  * コメント取得を行い、result と fetchMeta を返す。
  *
+ * 取り直す記事は shouldRefetchArticle で決める（commentCount の変化。更新ボタンのときは対応待ちを含む記事も）。
+ * 新形式の記事は、ルートに加えて reply_count が変わったスレッドの返信も取る（article.threads）。
+ *
+ * options.manualKeys    … 手動で対応済みにしたコメントの key。対応待ちの判定から除く。
+ * options.replyBaseline … 返信の追跡を始める取得（初回）。返信は取らず件数だけ記録する。
+ * options.refetchPending … 対応待ちの残る記事も取り直すか（更新ボタンのときだけ true。省略時は true）
+ *
  * fetchMeta.fetchStatus は:
  *   - 'complete' … 全記事のコメントを取得し終えた（キャッシュ流用含む）
  *   - 'failed'   … 途中で例外が出た。result には取得済みのものまで入る
  */
-export async function fetchUpdatedCommentsWithMeta(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress) {
+export async function fetchUpdatedCommentsWithMeta(articles, cachedArticles, ownerUrlname, legacyVisible, onProgress, options = {}) {
+  const manualSet = new Set(options.manualKeys || [])
+  const replyBaseline = !!options.replyBaseline
+  const refetchPending = options.refetchPending !== false
   const cacheMap = new Map()
   if (cachedArticles) {
     for (const a of cachedArticles) {
@@ -340,12 +407,16 @@ export async function fetchUpdatedCommentsWithMeta(articles, cachedArticles, own
     }
   }
 
+  const needsFetch = (article) =>
+    shouldRefetchArticle(article, cacheMap.get(article.key), ownerUrlname, {
+      legacy: isLegacyArticle(article.publishedAt),
+      manualSet,
+      refetchPending,
+    })
+
   const result = []
   let fetchCount = 0
-  const toFetch = articles.filter((a) => {
-    const cached = cacheMap.get(a.key)
-    return !cached || cached.commentCount !== a.commentCount
-  })
+  const toFetch = articles.filter(needsFetch)
 
   let meta = { ...emptyFetchMeta(), startedAt: new Date().toISOString() }
 
@@ -354,16 +425,24 @@ export async function fetchUpdatedCommentsWithMeta(articles, cachedArticles, own
       const article = articles[i]
       const cached = cacheMap.get(article.key)
 
-      if (cached && cached.commentCount === article.commentCount) {
-        result.push({ ...article, comments: cached.comments, repliedCount: cached.repliedCount })
+      if (!needsFetch(article)) {
+        result.push({ ...article, comments: cached.comments, repliedCount: cached.repliedCount, threads: threadsOf(cached) })
         continue
       }
 
       fetchCount++
-      if (onProgress) onProgress(`コメント取得中... (${fetchCount}/${toFetch.length}) ${article.title}`)
+      const label = `(${fetchCount}/${toFetch.length}) ${article.title}`
+      if (onProgress) onProgress(`コメント取得中... ${label}`)
 
       const comments = await fetchComments(article.key, article.publishedAt, ownerUrlname, legacyVisible)
-      result.push({ ...article, comments })
+      if (isLegacyArticle(article.publishedAt)) {
+        result.push({ ...article, comments })
+      } else {
+        const threads = await fetchThreads(article.key, comments, threadsOf(cached), ownerUrlname, replyBaseline, (n, m) => {
+          if (onProgress) onProgress(`返信を取得中... ${label}（スレッド ${n}/${m}）`)
+        })
+        result.push({ ...article, comments, threads })
+      }
 
       if (fetchCount < toFetch.length) await sleep(200)
     }

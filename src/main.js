@@ -1,12 +1,13 @@
 import './style.css'
-import { getIncludePinnedOutsideRange, setIncludePinnedOutsideRange, getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents, getSeasonalOutfitEnabled, setSeasonalOutfitEnabled, getOutfitUnlocks, setOutfitUnlocks } from './storage.js'
-import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing } from './api.js'
+import { getIncludePinnedOutsideRange, setIncludePinnedOutsideRange, getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, addManualRepliedMany, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents, getSeasonalOutfitEnabled, setSeasonalOutfitEnabled, getOutfitUnlocks, setOutfitUnlocks, getReplyTrackingStartedAt, setReplyTrackingStartedAt } from './storage.js'
+import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing, fetchThreadConversation } from './api.js'
 import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta, shouldShowFetchWarningIcon } from './lib/fetch-meta.js'
 import { filterActionableComments } from './lib/cache-storage.js'
-import { parseComment, relativeTime, escapeHtml } from './utils.js'
+import { parseComment, relativeTime, escapeHtml, formatUpdatedAt } from './utils.js'
 import { processComments as processCommentsCore } from './lib/process-comments.js'
 import { shouldShowPraise } from './lib/should-show-praise.js'
 import { buildSupportData } from './lib/support-data.js'
+import { countNewSince, classifyThreadReplies } from './lib/reply-thread.js'
 
 // --- Interaction tracking (for manualReplied 異常検知) ---
 const interactionState = {
@@ -307,6 +308,31 @@ const refreshBtn = $('refreshBtn')
 const settingsModal = $('settingsModal')
 const urlnameInput = $('urlnameInput')
 
+// --- Icons (件数カード) ---
+
+const ICON_MAIL = '<svg class="stat-card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m3 7 9 6 9-6"></path></svg>'
+const ICON_CHECK = '<svg class="stat-card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 3 3 5-6"></path></svg>'
+
+// --- Header menu（おへんじ帖の輪・設定） ---
+
+const headerMenuBtn = $('headerMenuBtn')
+const headerMenuList = $('headerMenuList')
+
+function setHeaderMenuOpen(open) {
+  headerMenuList.hidden = !open
+  headerMenuBtn.setAttribute('aria-expanded', open ? 'true' : 'false')
+}
+
+headerMenuBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
+  setHeaderMenuOpen(headerMenuList.hidden)
+})
+
+// メニューの項目を選んだとき・外側を押したときは閉じる
+document.addEventListener('click', (e) => {
+  if (!headerMenuList.hidden && !headerMenuBtn.contains(e.target)) setHeaderMenuOpen(false)
+})
+
 // --- State ---
 let articlesWithComments = []
 let isRefreshing = false
@@ -400,6 +426,7 @@ $('settingsBtn').addEventListener('click', () => {
 })
 
 $('settingsCancelBtn').addEventListener('click', () => closeModal(settingsModal))
+$('settingsBackBtn').addEventListener('click', () => closeModal(settingsModal))
 
 // --- サポートデータコピー ---
 
@@ -422,6 +449,7 @@ $('supportCopyBtn').addEventListener('click', async () => {
         legacyCommentsVisible: getLegacyCommentsVisible(),
         viewMode: getViewMode(),
         mutedUsers: getMutedUsers(),
+        replyTrackingStartedAt: getReplyTrackingStartedAt(urlname),
       },
       cache: previousCacheRaw || { articles: [] },
       manualRepliedEntries: getManualRepliedEntries({ appVersion: __APP_VERSION__ }),
@@ -514,8 +542,10 @@ saveBtn.addEventListener('click', async () => {
 
 // --- View mode toggle ---
 
-$('viewModeBtn').addEventListener('click', () => {
-  viewMode = viewMode === 'articles' ? 'comments' : 'articles'
+$('viewModeBtn').addEventListener('click', (e) => {
+  const mode = e.target.closest('[data-mode]')?.dataset.mode
+  if (!mode || mode === viewMode) return
+  viewMode = mode
   setViewMode(viewMode)
   render()
 })
@@ -523,10 +553,13 @@ $('viewModeBtn').addEventListener('click', () => {
 // --- Refresh ---
 
 refreshBtn.addEventListener('click', () => {
-  if (!isRefreshing) refresh()
+  // 明示的な更新では、対応待ちの記事も取り直す（note 側でスキした変化を反映する）
+  if (!isRefreshing) refresh({ refetchPending: true })
 })
 
-async function refresh() {
+// refetchPending: 対応待ち（未返信・いいね済）の残る記事も取り直すか。
+// 起動時・設定保存時は false（commentCount が変わった記事だけ。v1.8.1 と同じ速さ）、更新ボタンのときだけ true。
+async function refresh({ refetchPending = false } = {}) {
   const urlname = getUrlname()
   if (!urlname) {
     openModal(settingsModal)
@@ -535,6 +568,7 @@ async function refresh() {
 
   isRefreshing = true
   refreshBtn.classList.add('refreshing')
+  renderUpdateStatus()
 
   const cachedArticles = getCache(urlname)
   const hasCache = cachedArticles && cachedArticles.length > 0
@@ -558,17 +592,27 @@ async function refresh() {
       loadingText.textContent = msg
     }, { includePinnedOutsideRange: getIncludePinnedOutsideRange() })
 
+    // 返信の追跡開始時刻。まだ無ければ今回が基準化の取得になり、今より前の返信は「既存」扱い
+    const savedTrackingStart = getReplyTrackingStartedAt(urlname)
+    const replyBaseline = !savedTrackingStart
+    const replyTrackingSince = savedTrackingStart || new Date().toISOString()
+
     const legacyVisible = getLegacyCommentsVisible()
     const commentsRes = await fetchUpdatedCommentsWithMeta(articlesRes.articles, cachedArticles, urlname, legacyVisible, (msg) => {
       loadingText.textContent = msg
-    })
+    }, { manualKeys: getManualReplied(), replyBaseline, refetchPending })
 
     // 取得結果から fetchMeta を合成
     const combinedMeta = mergeFetchMeta(articlesRes.fetchMeta, commentsRes.fetchMeta)
     const previousCacheRaw = readPreviousCacheRaw(urlname)
 
+    // 前回の更新より後に届いたコメント・返信の件数（初回は null）
+    const mutedSet = new Set(getMutedUsers().map((u) => u.urlname))
+    const updateResult = countNewSince(commentsRes.result, urlname, previousCacheRaw?.meta?.finishedAt, mutedSet)
+    if (combinedMeta.fetchStatus === 'complete') combinedMeta.updateResult = updateResult
+
     // 「対応対象キャッシュ」: 未返信＋いいね済のみを保存対象にする
-    const actionableArticles = filterActionableComments(commentsRes.result, urlname)
+    const actionableArticles = filterActionableComments(commentsRes.result, urlname, { replyTrackingSince })
 
     const decision = commitCacheDecision({
       previousCache: previousCacheRaw,
@@ -594,9 +638,16 @@ async function refresh() {
       }
     }
 
+    // 基準化の取得がキャッシュまで保存できたら、追跡開始時刻を確定する
+    if (replyBaseline && decision.action === 'commit' && saveResult.ok) {
+      setReplyTrackingStartedAt(urlname, replyTrackingSince)
+    }
+
     // 画面表示には actionable な記事（repliedCount 集計済み）を使う
     articlesWithComments = processComments(actionableArticles, urlname)
+    lastRefreshFailed = decision.action !== 'commit'
   } catch (err) {
+    lastRefreshFailed = true
     if (!hasCache) {
       content.innerHTML = `<div class="error-banner">エラー: ${escapeHtml(err.message)}</div>`
       content.hidden = false
@@ -608,7 +659,38 @@ async function refresh() {
   isRefreshing = false
   refreshBtn.classList.remove('refreshing')
   updateFetchWarningIcon()
+  renderUpdateStatus()
   render()
+}
+
+// --- 最終更新・更新結果 ---
+
+let lastRefreshFailed = false
+
+function renderUpdateStatus() {
+  const el = $('updateStatus')
+  if (!el) return
+  if (isRefreshing) {
+    el.textContent = '更新中…'
+    el.hidden = false
+    return
+  }
+  const meta = readPreviousCacheRaw(getUrlname())?.meta
+  if (!meta?.finishedAt || meta.fetchStatus === 'failed') {
+    el.hidden = true
+    return
+  }
+  const parts = [`最終更新 ${formatUpdatedAt(meta.finishedAt)}`]
+  if (lastRefreshFailed) {
+    parts.push('更新できませんでした')
+  } else if (meta.updateResult) {
+    const { newComments, newReplies } = meta.updateResult
+    parts.push(newComments + newReplies > 0
+      ? `新しいコメント ${newComments}件・返信 ${newReplies}件`
+      : '新しいコメントはありません')
+  }
+  el.textContent = parts.join('　')
+  el.hidden = false
 }
 
 // --- Fetch warning icon ---
@@ -649,7 +731,7 @@ $('fetchWarningCloseBtn')?.addEventListener('click', () => closeModal($('fetchWa
 function processComments(articles, urlname) {
   const manualReplied = getManualReplied()
   const mutedUrlnames = getMutedUsers().map((u) => u.urlname)
-  return processCommentsCore(articles, urlname, manualReplied, mutedUrlnames)
+  return processCommentsCore(articles, urlname, manualReplied, mutedUrlnames, getReplyTrackingStartedAt(urlname))
 }
 
 // --- Render ---
@@ -676,25 +758,29 @@ function render() {
 
   const repliedLabel = $('repliedCountLabel')
 
+  const viewModeBtn = $('viewModeBtn')
   if (totalComments > 0 || totalReplied > 0) {
     summaryBar.hidden = false
-    if (totalUnreplied > 0) {
-      summaryText.textContent = `${totalUnreplied}件の未返信コメント`
-      summaryBar.style.background = 'var(--status-unreplied-bg)'
-      summaryBar.style.color = 'var(--status-unreplied)'
-    } else {
-      summaryText.textContent = 'すべて返信済み'
-      summaryBar.style.background = 'var(--status-replied-bg)'
-      summaryBar.style.color = 'var(--status-replied)'
-    }
+    summaryText.innerHTML = totalUnreplied > 0
+      ? `${ICON_MAIL}<div class="stat-card__body"><span class="stat-card__label">未返信</span><span class="stat-card__num">${totalUnreplied}<small>件</small></span></div>`
+      : `${ICON_MAIL}<div class="stat-card__body"><span class="stat-card__label">未返信</span><span class="stat-card__done">すべて返信済み</span></div>`
+    summaryText.classList.toggle('stat-card--done', totalUnreplied === 0)
     if (repliedLabel) {
-      repliedLabel.textContent = totalReplied > 0 ? `返信済み ${totalReplied}件` : ''
+      repliedLabel.innerHTML = `${ICON_CHECK}<div class="stat-card__body"><span class="stat-card__label">返信済み</span><span class="stat-card__num">${totalReplied}<small>件</small></span></div>`
       repliedLabel.hidden = totalReplied === 0
     }
-    const viewModeBtn = $('viewModeBtn')
-    if (viewModeBtn) viewModeBtn.textContent = viewMode === 'articles' ? '記事順' : 'コメント順'
+    if (viewModeBtn) {
+      viewModeBtn.querySelectorAll('[data-mode]').forEach((b) => {
+        const active = b.dataset.mode === viewMode
+        b.classList.toggle('is-active', active)
+        b.setAttribute('aria-pressed', active ? 'true' : 'false')
+      })
+      // 一覧が空（未返信ゼロ）のときは、切り替えても何も変わらないので出さない
+      viewModeBtn.hidden = totalUnreplied === 0
+    }
   } else {
     summaryBar.hidden = true
+    if (viewModeBtn) viewModeBtn.hidden = true
   }
 
   // Collab banner: visible while an active collab period is running
@@ -730,7 +816,7 @@ function render() {
     const statusLabel = {
       unreplied: '未返信',
       liked: 'いいね済',
-      replied: '返信済',
+      replied: '返信済み',
     }[comment.status]
 
     const statusClass = `status-badge--${comment.status}`
@@ -741,9 +827,15 @@ function render() {
       : '👤'
 
     const bodyText = parseComment(comment.body || comment.comment || '')
+    const isThread = comment.kind === 'thread'
 
     const articleTitleHtml = includeArticleTitle
       ? `<div class="comment-article-title">${escapeHtml(article.title)}</div>`
+      : ''
+
+    // 返信は「スレッド N件 ›」で見分ける。タップするとスレッド画面が開くことを先に示す
+    const threadHtml = isThread
+      ? `<span class="comment-thread">スレッド ${comment.replyCount}件 ›</span>`
       : ''
 
     card.innerHTML = `
@@ -752,12 +844,13 @@ function render() {
         ${articleTitleHtml}
         <div class="comment-meta">
           <span class="comment-author">${escapeHtml(comment.user?.nickname || comment.user?.urlname || '匿名')}</span>
+          <span class="status-badge ${statusClass}"><span class="status-badge__text">${statusLabel}</span></span>
+        </div>
+        <div class="comment-sub">
           <span class="comment-time">${relativeTime(comment.created_at)}</span>
+          ${threadHtml}
         </div>
         <p class="comment-text">${escapeHtml(bodyText)}</p>
-      </div>
-      <div class="comment-status">
-        <span class="status-badge ${statusClass}">${statusLabel}</span>
       </div>
     `
 
@@ -769,13 +862,7 @@ function render() {
       longPressTimer = setTimeout(() => {
         isLongPress = true
         if (comment.status !== 'replied') {
-          pendingComment = {
-            commentKey: comment.key,
-            articleKey: article.key,
-            commentBody: bodyText,
-            userUrlname: comment.user?.urlname,
-            userNickname: comment.user?.nickname || comment.user?.urlname || '匿名',
-          }
+          pendingComment = makePending(comment, article, bodyText)
           openModal(replyModal)
           replyTarget.textContent = bodyText
           muteUserBtn.textContent = `${pendingComment.userNickname} を非表示`
@@ -796,18 +883,12 @@ function render() {
 
     card.addEventListener('click', (e) => {
       if (isLongPress) return
-      if (comment.status === 'unreplied' || comment.status === 'liked') {
-        pendingComment = {
-          commentKey: comment.key,
-          articleKey: article.key,
-          commentBody: bodyText,
-          userUrlname: comment.user?.urlname,
-          userNickname: comment.user?.nickname || comment.user?.urlname || '匿名',
-        }
-        sessionStorage.setItem('ncm_pending', JSON.stringify(pendingComment))
+      // 返信スレッドは、まずアプリ内で会話を時系列で見せる
+      if (isThread) {
+        openThreadModal(comment, article, bodyText)
+        return
       }
-      const noteUrl = `https://note.com/${encodeURIComponent(article.urlname)}/n/${encodeURIComponent(article.key)}?scrollpos=comment&c=${encodeURIComponent(comment.key)}`
-      window.open(noteUrl, '_blank')
+      openOnNote(comment, article, bodyText)
     })
 
     return card
@@ -940,6 +1021,169 @@ function render() {
   }
 }
 
+// --- 対応確認の対象 ---
+
+// ルートコメントは commentKey 1件、返信スレッドは対応待ちの返信の key をまとめて持つ
+function makePending(comment, article, bodyText) {
+  const pending = {
+    commentKey: comment.key,
+    articleKey: article.key,
+    commentBody: bodyText,
+    userUrlname: comment.user?.urlname,
+    userNickname: comment.user?.nickname || comment.user?.urlname || '匿名',
+  }
+  if (comment.kind === 'thread') {
+    pending.kind = 'thread'
+    pending.commentKeys = comment.pendingKeys
+  }
+  return pending
+}
+
+function noteCommentUrl(article, commentKey) {
+  return `https://note.com/${encodeURIComponent(article.urlname)}/n/${encodeURIComponent(article.key)}?scrollpos=comment&c=${encodeURIComponent(commentKey)}`
+}
+
+// note を開く。戻ってきたら「対応済みにしますか？」を聞く
+function openOnNote(comment, article, bodyText) {
+  if (comment.status === 'unreplied' || comment.status === 'liked') {
+    pendingComment = makePending(comment, article, bodyText)
+    sessionStorage.setItem('ncm_pending', JSON.stringify(pendingComment))
+  }
+  // 返信スレッドはルートコメントの位置へ飛ぶ（返信はその下に並ぶ）
+  const targetKey = comment.kind === 'thread' ? comment.rootKey : comment.key
+  window.open(noteCommentUrl(article, targetKey), '_blank')
+}
+
+function markHandled(pending) {
+  if (!pending) return
+  const urlname = getUrlname()
+  if (pending.kind === 'thread') {
+    // 返信はスレッドの会話表示に使うのでキャッシュからは消さない。手動印だけで判定する
+    addManualRepliedMany(pending.commentKeys, getManualRepliedContext())
+  } else {
+    addManualReplied(pending.commentKey, getManualRepliedContext())
+    // 対応対象キャッシュからも該当コメントを削除（キャッシュは「作業キュー」）
+    removeCommentFromCache(urlname, pending.commentKey)
+  }
+}
+
+function rerenderFromCache() {
+  const urlname = getUrlname()
+  const cached = getCache(urlname)
+  if (cached) {
+    articlesWithComments = processComments(cached, urlname)
+    render()
+  }
+}
+
+// --- 返信スレッドの会話表示 ---
+
+const threadModal = $('threadModal')
+let threadModalTarget = null // { comment, article, bodyText }
+
+// 会話はキャッシュに持たないので、開いたときに取得する
+async function openThreadModal(comment, article, bodyText) {
+  const target = { comment, article, bodyText }
+  threadModalTarget = target
+  const messagesEl = $('threadMessages')
+  $('threadArticleTitle').textContent = article.title
+  $('threadArticleLink').href = `https://note.com/${encodeURIComponent(article.urlname)}/n/${encodeURIComponent(article.key)}`
+  messagesEl.innerHTML = '<div class="thread-loading"><div class="loading-spinner"></div><p>会話を読み込み中...</p></div>'
+  openModal(threadModal)
+
+  let conversation
+  try {
+    conversation = await fetchThreadConversation(article.key, comment.rootKey)
+  } catch {
+    if (threadModalTarget !== target) return
+    messagesEl.innerHTML = '<p class="thread-loading">会話を読み込めませんでした。「noteで開く」から確認してください。</p>'
+    return
+  }
+  // 読み込み中に閉じた・別のスレッドを開いた場合は描画しない
+  if (threadModalTarget !== target) return
+
+  const urlname = getUrlname()
+  const manualSet = new Set(getManualReplied())
+  const mutedSet = new Set(getMutedUsers().map((u) => u.urlname))
+  const statusByKey = new Map(
+    classifyThreadReplies({ replies: conversation.replies }, urlname, manualSet, mutedSet, getReplyTrackingStartedAt(urlname)).map((r) => [r.key, r.status])
+  )
+  const statusLabel = { unreplied: '未返信', liked: 'いいね済', replied: '返信済み' }
+
+  const messages = [conversation.root, ...conversation.replies]
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+
+  messagesEl.innerHTML = messages.map((m) => {
+    const isOwner = m.user?.urlname === urlname
+    const status = statusByKey.get(m.key)
+    const pending = status && status !== 'replied'
+    const badge = pending
+      ? `<span class="status-badge status-badge--${status}">${statusLabel[status]}</span>`
+      : ''
+    const time = escapeHtml(formatMessageTime(m.created_at))
+    const text = escapeHtml(parseComment(m.comment || ''))
+    const stateClass = pending ? ` thread-msg--pending thread-msg--${status}` : ''
+
+    // 自分の発言: 緑の枠の中に「あなた」と時刻
+    if (isOwner) {
+      return `
+      <div class="thread-msg thread-msg--owner${stateClass}">
+        <div class="thread-bubble">
+          <div class="thread-bubble-head"><span class="thread-author">あなた</span><span class="thread-time">${time}</span></div>
+          <p class="thread-text">${text}</p>
+        </div>
+      </div>`
+    }
+
+    // 相手の発言: アイコン・名前・時刻の下に、ベージュの枠
+    const avatarUrl = m.user?.profile_image_url
+    const avatar = avatarUrl ? `<img src="${encodeURI(avatarUrl)}" alt="" />` : '👤'
+    return `
+      <div class="thread-msg${stateClass}">
+        <div class="thread-msg-head">
+          <div class="thread-avatar">${avatar}</div>
+          <div class="thread-msg-who">
+            <span class="thread-author">${escapeHtml(m.user?.nickname || m.user?.urlname || '匿名')}</span>
+            <span class="thread-time">${time}${badge}</span>
+          </div>
+        </div>
+        <div class="thread-bubble"><p class="thread-text">${text}</p></div>
+      </div>`
+  }).join('')
+
+  // 開くきっかけになった返信（対応待ちの最後の1件）まで送る
+  const targets = messagesEl.querySelectorAll('.thread-msg--pending')
+  if (targets.length > 0) targets[targets.length - 1].scrollIntoView({ block: 'nearest' })
+}
+
+function formatMessageTime(iso) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+$('threadOpenNoteBtn').addEventListener('click', () => {
+  if (!threadModalTarget) return
+  const { comment, article, bodyText } = threadModalTarget
+  closeModal(threadModal)
+  openOnNote(comment, article, bodyText)
+})
+
+$('threadDoneBtn').addEventListener('click', () => {
+  if (!threadModalTarget) return
+  const { comment, article, bodyText } = threadModalTarget
+  markHandled(makePending(comment, article, bodyText))
+  threadModalTarget = null
+  closeModal(threadModal)
+  rerenderFromCache()
+})
+
+$('threadCloseBtn').addEventListener('click', () => {
+  threadModalTarget = null
+  closeModal(threadModal)
+})
+
 // --- Return detection & reply confirm ---
 
 const replyModal = $('replyModal')
@@ -959,20 +1203,13 @@ function handleReturn() {
 }
 
 $('replyYesBtn').addEventListener('click', () => {
-  const urlname = getUrlname()
   if (pendingComment) {
-    addManualReplied(pendingComment.commentKey, getManualRepliedContext())
-    // 対応対象キャッシュからも該当コメントを削除（キャッシュは「作業キュー」）
-    removeCommentFromCache(urlname, pendingComment.commentKey)
+    markHandled(pendingComment)
     pendingComment = null
   }
   closeModal(replyModal)
   // Re-process and render with updated manual replied
-  const cached = getCache(urlname)
-  if (cached) {
-    articlesWithComments = processComments(cached, urlname)
-    render()
-  }
+  rerenderFromCache()
 })
 
 $('replyNoBtn').addEventListener('click', () => {
@@ -1073,7 +1310,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    '固定記事に「📌 固定」を表示するようにしました。\n\n取得範囲より前に公開した固定記事も、これまでどおり返信チェックの対象です。含めたくない場合は設定からオフにできます。'
+    'コメントへの「返信」も拾えるようになりました。\n\nあなたが返したあとに、読者がもう一度返してくれた返信も、一覧に並びます。「スレッド N件 ›」の付いたカードをタップすると、それまでの会話を順に確認できます。\n\n対象になるのは、このアップデートのあとに届いた返信からです。それより前の返信は、未返信の件数に入りません。\n\nほかにも、次のように変わりました。\n・見た目を新しくしました（PC など広い画面にも対応）\n・未返信と返信済みの件数、最終更新の時刻を画面上部に表示\n・「返信した」ボタンを「対応済みにする」に変更\n・おへんじ帖の輪と設定は、右上の「…」から開けます\n\nnote でスキしたことをすぐ反映したいときは、右上の「更新」を押してください。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)

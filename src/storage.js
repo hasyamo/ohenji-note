@@ -64,6 +64,32 @@ export function addManualReplied(commentId, context = {}) {
 }
 
 /**
+ * 手動の対応済み印をまとめて追加する（返信スレッドの「対応済みにする」用）。
+ * 1回の操作で複数件を記録するのが正常な動きなので、source を 'reply-thread' にして
+ * 「1クリックで複数件」の異常検知から外す。
+ */
+export function addManualRepliedMany(keys, context = {}) {
+  const valid = (keys || []).filter((k) => typeof k === 'string' && k)
+  if (valid.length === 0) return
+  const ctx = { ...context, source: 'reply-thread' }
+  let entries = getManualRepliedEntries(ctx)
+  let changed = false
+  for (const key of valid) {
+    const res = addManualRepliedEntry(entries, key, ctx)
+    if (res.added) {
+      entries = res.entries
+      changed = true
+    }
+  }
+  if (!changed) return
+  try {
+    localStorage.setItem(MANUAL_REPLIED_KEY, JSON.stringify(entries))
+  } catch {
+    // 容量超過などの保存失敗は握りつぶす（addManualReplied と同じ）
+  }
+}
+
+/**
  * デバッグイベント（リングバッファ最大 DEBUG_EVENTS_MAX 件）。
  */
 export function appendDebugEvent(event) {
@@ -169,6 +195,34 @@ export function setOutfitUnlocks(noteId, unlocks) {
     )
   } catch {
     // localStorage full — 次回の通信で復帰できるので握りつぶす
+  }
+}
+
+// 返信の追跡開始時刻（note ID ごと）: { [urlname]: ISO8601 }
+// 返信スレッド対応版で初めて取得に成功した時刻。これより前の返信は未返信として数えない。
+const REPLY_TRACKING_KEY = 'ncm_reply_tracking_started_at'
+
+function readReplyTrackingMap() {
+  try {
+    const raw = localStorage.getItem(REPLY_TRACKING_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    return map && typeof map === 'object' ? map : {}
+  } catch {
+    return {}
+  }
+}
+
+export function getReplyTrackingStartedAt(urlname) {
+  return readReplyTrackingMap()[urlname] || null
+}
+
+export function setReplyTrackingStartedAt(urlname, iso) {
+  const map = readReplyTrackingMap()
+  map[urlname] = iso
+  try {
+    localStorage.setItem(REPLY_TRACKING_KEY, JSON.stringify(map))
+  } catch {
+    // 保存できなければ次回も基準化の取得になる（過去分を未返信にしない側に倒れる）
   }
 }
 
@@ -287,7 +341,7 @@ export function getCacheStorageStatus(urlname) {
 
 /**
  * キャッシュから特定のコメントキーを削除する。
- * 「返信した」押下時、対応対象キャッシュから1件取り除くのに使う。
+ * 「対応済みにする」押下時、対応対象キャッシュから1件取り除くのに使う。
  * 戻り値は saveCacheWithMeta と同じ結果オブジェクト。
  */
 export function removeCommentFromCache(urlname, commentKey) {
@@ -299,7 +353,8 @@ export function removeCommentFromCache(urlname, commentKey) {
       ...a,
       comments: (a.comments || []).filter((c) => c.key !== commentKey),
     }))
-    .filter((a) => (a.comments || []).length > 0)
+    // 返信スレッドを持つ記事は残す（落とすと次回、全スレッドの返信を取り直すことになる）
+    .filter((a) => (a.comments || []).length > 0 || Object.keys(a.replyCounts || {}).length > 0)
   const nextCache = {
     ...cache,
     updatedAt: new Date().toISOString(),

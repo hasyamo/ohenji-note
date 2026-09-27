@@ -5,7 +5,11 @@
  * - 保存サイズも計測してメタに含める
  */
 
-export const CURRENT_CACHE_SCHEMA_VERSION = 2
+import { slimThreadForCache, compactThreads } from './reply-thread.js'
+import { parseComment } from '../utils.js'
+
+// 3: 記事ごとに返信スレッド（threads）を持つようになった
+export const CURRENT_CACHE_SCHEMA_VERSION = 3
 export const CACHE_MODE = 'actionable-comments-only'
 
 /**
@@ -53,10 +57,14 @@ export function approxByteLength(str) {
  * 同時に、記事ごとに「返信済み件数」(repliedCount) を集計してフィールドに残す。
  * これは満足感の表示（返信済み 242件）のためにキャッシュに保持する数値（本文なし）。
  *
+ * 返信スレッド（threads）は会話を保存しない。replyCounts（返信数）と
+ * pendingReplies（対応待ちの返信。文面はプレーンテキスト）の2つに詰めて保存する。
+ * 追跡開始（replyTrackingSince）以前の返信は対応待ちに入れない。
+ *
  * 入力: 記事の配列、所有者の urlname
  * 出力: フィルタ済みの記事配列。各記事に repliedCount を含む。
  */
-export function filterActionableComments(articles, ownerUrlname) {
+export function filterActionableComments(articles, ownerUrlname, { replyTrackingSince = null } = {}) {
   if (!Array.isArray(articles)) return []
   return articles.map((a) => {
     const all = a.comments || []
@@ -68,11 +76,16 @@ export function filterActionableComments(articles, ownerUrlname) {
     const repliedCount = hasRepliedInPayload
       ? others.filter((c) => c.is_creator_replied).length
       : (a.repliedCount ?? 0)
-    return {
+    const next = {
       ...a,
       comments: actionable,
       repliedCount,
     }
+    if (Array.isArray(a.threads)) {
+      delete next.threads
+      Object.assign(next, compactThreads(a.threads.map((t) => slimThreadForCache(t, ownerUrlname, parseComment, replyTrackingSince))))
+    }
+    return next
   })
 }
 

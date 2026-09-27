@@ -7,7 +7,7 @@
  *
  * 出力:
  *   'replied_api'           … note.com側で作者が返信済み
- *   'replied_manual'        … アプリの「返信した」ボタンで印を付けた（通常）
+ *   'replied_manual'        … アプリの「対応済みにする」ボタンで印を付けた（通常）
  *   'replied_manual_legacy' … 旧形式の手動印を移行したもの（信頼度低）
  *   'liked'                 … note.com側で作者がいいねだけしている
  *   'unreplied'             … 上記いずれにも当たらない
