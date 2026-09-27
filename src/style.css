@@ -1663,10 +1663,17 @@ body {
 /* --- 未返信ゼロの演出: PC 幅では白いカードにまとめ、ちびキャラとセリフを横に並べる --- */
 
 @media (min-width: 900px) {
+  /* ちびキャラを左、セリフとコラボの作者リンクを右の列に縦に並べる */
   .content > .chibi-reward {
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: auto minmax(0, 360px);
+    grid-template-areas:
+      "img text"
+      "img credit";
+    grid-template-rows: auto auto;
     justify-content: center;
-    gap: 40px;
+    align-content: center;
+    column-gap: 40px;
     padding: 40px 48px;
     margin-top: 8px;
     background: var(--surface-bright);
@@ -1675,10 +1682,14 @@ body {
   }
 
   .chibi-reward img {
+    grid-area: img;
+    align-self: center;
     max-width: 240px;
   }
 
   .chibi-reward__text {
+    grid-area: text;
+    align-self: end;
     margin-top: 0;
     max-width: 360px;
     align-items: flex-start;
@@ -1690,7 +1701,17 @@ body {
     padding: 14px 20px;
   }
 
+  /* 作者リンクが無い（通常のキャラ）ときは、セリフを上下の中央に置く */
+  .chibi-reward__text:last-child {
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
   .chibi-reward__credit {
-    align-self: flex-start;
+    grid-area: credit;
+    align-self: start;
+    justify-self: start;
+    margin-top: 12px;
+    white-space: nowrap;
   }
 }
