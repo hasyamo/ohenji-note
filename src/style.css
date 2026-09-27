@@ -75,7 +75,7 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  background: #fbf3e4 url('/ohenji-note/images/header-cat.webp') right bottom / auto 100% no-repeat;
+  background: #fbf3e4 url('./assets/header-cat.webp') right bottom / auto 100% no-repeat;
   color: var(--on-surface);
 }
 
@@ -1436,7 +1436,7 @@ body {
   height: 150px;
   margin: 0 -16px 16px;
   padding: 22px 20px 0;
-  background: #fbf3e4 url('/ohenji-note/images/header-cat.webp') right bottom / auto 100% no-repeat;
+  background: #fbf3e4 url('./assets/header-cat.webp') right bottom / auto 100% no-repeat;
 }
 
 .settings-hero::before {
