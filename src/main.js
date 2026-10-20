@@ -1432,7 +1432,7 @@ function checkVersionUpdate() {
 function showUpdateModal() {
   const updateModal = $('updateModal')
   $('updateBody').textContent =
-    'コメントへの「返信」も拾えるようになりました。\n\nあなたが返したあとに、読者がもう一度返してくれた返信も、一覧に並びます。「スレッド N件 ›」の付いたカードをタップすると、それまでの会話を順に確認できます。\n\n対象になるのは、このアップデートのあとに届いた返信からです。それより前の返信は、未返信の件数に入りません。\n\nほかにも、次のように変わりました。\n・見た目を新しくしました（PC など広い画面にも対応）\n・未返信と返信済みの件数、最終更新の時刻を画面上部に表示\n・「返信した」ボタンを「対応済みにする」に変更\n・おへんじ帖の輪と設定は、右上の「…」から開けます\n\nnote でスキしたことをすぐ反映したいときは、右上の「更新」を押してください。'
+    '設定画面でもう1つ note ID を追加すると、本垢とサブ垢を画面上部で切り替えられるようにしました。'
   openModal(updateModal)
   $('updateCloseBtn').addEventListener('click', () => {
     localStorage.setItem(VERSION_KEY, __APP_VERSION__)
