@@ -37,6 +37,7 @@
             おへんじ帖
           </h1>
           <p class="header-tagline">返してくれた言葉に、<br />やさしく戻る場所。</p>
+          <div class="account-switcher" id="accountSwitcher" role="group" aria-label="表示する note ID" hidden></div>
         </div>
         <div class="header-actions">
           <button class="header-btn header-btn--warning" id="fetchWarningBtn" aria-label="取得状態" hidden>
@@ -137,6 +138,14 @@
               <span class="settings-row-label">note ID</span>
               <input type="text" id="urlnameInput" class="settings-input" placeholder="例: hasyamo" autocomplete="off" />
             </label>
+            <label class="settings-row" for="urlnameInput2">
+              <span class="settings-row-label">
+                もう1つの note ID
+                <small>サブ垢などを入れると、上の画面で切り替えられます（任意）</small>
+              </span>
+              <input type="text" id="urlnameInput2" class="settings-input" placeholder="なし" autocomplete="off" />
+            </label>
+            <p class="settings-note" id="perAccountNote" hidden></p>
             <p class="modal-error settings-error" id="settingsError" hidden></p>
             <details class="settings-help">
               <summary>note ID の確認方法</summary>

@@ -8,12 +8,130 @@ const RANGE_KEY = 'ncm_range_days'
 const DEBUG_EVENTS_KEY = 'ncm_debug_events'
 const DEBUG_EVENTS_MAX = 50
 
+// note ID ごとに分けて持つ設定（値は文字列のまま移す）
+const PER_ACCOUNT_KEYS = [
+  RANGE_KEY,
+  'ncm_include_pinned_outside_range',
+  'ncm_ring_visible',
+  'ncm_legacy_comments_visible',
+  'ncm_muted_users',
+]
+
+// いま表示している note ID。保存できる ID（最大 MAX_ACCOUNTS 個）のうちの1つ
 export function getUrlname() {
   return localStorage.getItem(URLNAME_KEY) || ''
 }
 
 export function setUrlname(urlname) {
   localStorage.setItem(URLNAME_KEY, urlname)
+}
+
+// 保存した note ID の一覧（本垢・サブ垢の2つまで）。並びは設定画面の入力欄の順
+const SAVED_URLNAMES_KEY = 'ncm_urlnames'
+export const MAX_ACCOUNTS = 2
+
+export function getSavedUrlnames() {
+  try {
+    const raw = localStorage.getItem(SAVED_URLNAMES_KEY)
+    const list = raw ? JSON.parse(raw) : null
+    if (Array.isArray(list)) return list.filter((u) => typeof u === 'string' && u).slice(0, MAX_ACCOUNTS)
+  } catch {
+    // 壊れていたら、いまの ID だけとみなす
+  }
+  const current = getUrlname()
+  return current ? [current] : []
+}
+
+export function setSavedUrlnames(list) {
+  const unique = [...new Set((list || []).filter((u) => typeof u === 'string' && u))].slice(0, MAX_ACCOUNTS)
+  localStorage.setItem(SAVED_URLNAMES_KEY, JSON.stringify(unique))
+  return unique
+}
+
+// 切り替えボタンに出すアイコン・名前: { [urlname]: { nickname, avatarUrl } }
+const ACCOUNT_PROFILES_KEY = 'ncm_account_profiles'
+
+export function getAccountProfiles() {
+  try {
+    const raw = localStorage.getItem(ACCOUNT_PROFILES_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    return map && typeof map === 'object' ? map : {}
+  } catch {
+    return {}
+  }
+}
+
+export function setAccountProfile(urlname, profile) {
+  const map = getAccountProfiles()
+  map[urlname] = { nickname: profile?.nickname || '', avatarUrl: profile?.avatarUrl || '' }
+  try {
+    localStorage.setItem(ACCOUNT_PROFILES_KEY, JSON.stringify(map))
+  } catch {
+    // 保存できなくても、次の起動で取り直すだけ
+  }
+}
+
+// note ID ごとに分けて持つ値のキー
+function keyFor(baseKey, urlname) {
+  return `${baseKey}:${urlname}`
+}
+
+/**
+ * 保存した ID から外したときに、その ID のデータを消す。
+ * 容量を食うキャッシュと、表示用のプロフィールだけ消す（設定・非表示ユーザーは、
+ * 同じ ID を入れ直したときに戻るよう残す）。
+ */
+export function removeAccountData(urlname) {
+  if (!urlname) return
+  localStorage.removeItem(keyFor(CACHE_KEY, urlname))
+  const map = getAccountProfiles()
+  if (map[urlname]) {
+    delete map[urlname]
+    try { localStorage.setItem(ACCOUNT_PROFILES_KEY, JSON.stringify(map)) } catch {}
+  }
+}
+
+/**
+ * note ID 1つの時代（共通のキー）から、ID ごとのキーへ移す。起動時に1回だけ動く。
+ * 移す先は、いま保存されている note ID。前の版に戻したときのために、共通のキーは
+ * 消さずに残す（キャッシュだけは容量を食うので移したら消す）。
+ */
+const MULTI_ACCOUNT_MIGRATED_KEY = 'ncm_multi_account_migrated'
+
+export function migrateToMultiAccount() {
+  if (localStorage.getItem(MULTI_ACCOUNT_MIGRATED_KEY)) return
+  const owner = getUrlname()
+  if (owner) {
+    if (localStorage.getItem(SAVED_URLNAMES_KEY) === null) setSavedUrlnames([owner])
+    for (const baseKey of PER_ACCOUNT_KEYS) {
+      const value = localStorage.getItem(baseKey)
+      if (value !== null && localStorage.getItem(keyFor(baseKey, owner)) === null) {
+        localStorage.setItem(keyFor(baseKey, owner), value)
+      }
+    }
+    migrateOwnedJson(OUTFIT_UNLOCKS_KEY, owner, (v) => v.noteId, false)
+    migrateOwnedJson(CACHE_KEY, owner, (v) => v.urlname, true)
+  }
+  localStorage.setItem(MULTI_ACCOUNT_MIGRATED_KEY, new Date().toISOString())
+}
+
+// 中に持ち主の ID を持つ JSON（キャッシュ・衣装の解放状態）を、持ち主の ID のキーへ移す
+function migrateOwnedJson(baseKey, owner, ownerOf, removeLegacy) {
+  const raw = localStorage.getItem(baseKey)
+  if (!raw) return
+  let belongs = false
+  try { belongs = ownerOf(JSON.parse(raw) || {}) === owner } catch {}
+  const target = keyFor(baseKey, owner)
+  if (belongs && localStorage.getItem(target) === null) {
+    try {
+      localStorage.setItem(target, raw)
+    } catch {
+      // 容量が足りず2つ分置けないときは、先に古い方を消してから置く（中身は手元にある）
+      localStorage.removeItem(baseKey)
+      try { localStorage.setItem(target, raw) } catch {}
+    }
+  }
+  if (removeLegacy) localStorage.removeItem(baseKey)
 }
 
 // 手動返信印リスト（旧形式の文字列配列／新形式のエントリ配列／混在 を吸収）
@@ -115,14 +233,14 @@ export function getDebugEvents() {
   }
 }
 
-// Range (days): 0 = all
-export function getRangeDays() {
-  const v = localStorage.getItem(RANGE_KEY)
+// Range (days): 0 = all（note ID ごと）
+export function getRangeDays(urlname = getUrlname()) {
+  const v = localStorage.getItem(keyFor(RANGE_KEY, urlname))
   return v === null ? 0 : Number(v)
 }
 
-export function setRangeDays(days) {
-  localStorage.setItem(RANGE_KEY, String(days))
+export function setRangeDays(days, urlname = getUrlname()) {
+  localStorage.setItem(keyFor(RANGE_KEY, urlname), String(days))
 }
 
 // Include pinned articles that fall outside the fetch range (default true).
@@ -130,34 +248,34 @@ export function setRangeDays(days) {
 // 「返信し忘れを拾う」というアプリの目的上、取りこぼさない側をデフォルトにする。
 const INCLUDE_PINNED_OUTSIDE_RANGE_KEY = 'ncm_include_pinned_outside_range'
 
-export function getIncludePinnedOutsideRange() {
-  return localStorage.getItem(INCLUDE_PINNED_OUTSIDE_RANGE_KEY) !== 'false'
+export function getIncludePinnedOutsideRange(urlname = getUrlname()) {
+  return localStorage.getItem(keyFor(INCLUDE_PINNED_OUTSIDE_RANGE_KEY, urlname)) !== 'false'
 }
 
-export function setIncludePinnedOutsideRange(include) {
-  localStorage.setItem(INCLUDE_PINNED_OUTSIDE_RANGE_KEY, include ? 'true' : 'false')
+export function setIncludePinnedOutsideRange(include, urlname = getUrlname()) {
+  localStorage.setItem(keyFor(INCLUDE_PINNED_OUTSIDE_RANGE_KEY, urlname), include ? 'true' : 'false')
 }
 
 // Ring visibility setting
 const RING_VISIBLE_KEY = 'ncm_ring_visible'
 
-export function getRingVisible() {
-  return localStorage.getItem(RING_VISIBLE_KEY) !== 'false'
+export function getRingVisible(urlname = getUrlname()) {
+  return localStorage.getItem(keyFor(RING_VISIBLE_KEY, urlname)) !== 'false'
 }
 
-export function setRingVisible(visible) {
-  localStorage.setItem(RING_VISIBLE_KEY, visible ? 'true' : 'false')
+export function setRingVisible(visible, urlname = getUrlname()) {
+  localStorage.setItem(keyFor(RING_VISIBLE_KEY, urlname), visible ? 'true' : 'false')
 }
 
 // Legacy (pre-2025-09-08) comments visibility setting (default true)
 const LEGACY_COMMENTS_VISIBLE_KEY = 'ncm_legacy_comments_visible'
 
-export function getLegacyCommentsVisible() {
-  return localStorage.getItem(LEGACY_COMMENTS_VISIBLE_KEY) !== 'false'
+export function getLegacyCommentsVisible(urlname = getUrlname()) {
+  return localStorage.getItem(keyFor(LEGACY_COMMENTS_VISIBLE_KEY, urlname)) !== 'false'
 }
 
-export function setLegacyCommentsVisible(visible) {
-  localStorage.setItem(LEGACY_COMMENTS_VISIBLE_KEY, visible ? 'true' : 'false')
+export function setLegacyCommentsVisible(visible, urlname = getUrlname()) {
+  localStorage.setItem(keyFor(LEGACY_COMMENTS_VISIBLE_KEY, urlname), visible ? 'true' : 'false')
 }
 
 // Seasonal outfit setting (default ON) — local only, never sent to D1
@@ -177,7 +295,7 @@ const OUTFIT_UNLOCKS_KEY = 'ncm_outfit_unlocks'
 
 export function getOutfitUnlocks(noteId) {
   try {
-    const raw = localStorage.getItem(OUTFIT_UNLOCKS_KEY)
+    const raw = localStorage.getItem(keyFor(OUTFIT_UNLOCKS_KEY, noteId))
     if (!raw) return null
     const cache = JSON.parse(raw)
     if (!cache || cache.noteId !== noteId) return null
@@ -190,7 +308,7 @@ export function getOutfitUnlocks(noteId) {
 export function setOutfitUnlocks(noteId, unlocks) {
   try {
     localStorage.setItem(
-      OUTFIT_UNLOCKS_KEY,
+      keyFor(OUTFIT_UNLOCKS_KEY, noteId),
       JSON.stringify({ noteId, updatedAt: new Date().toISOString(), unlocks })
     )
   } catch {
@@ -238,31 +356,36 @@ export function setViewMode(mode) {
   localStorage.setItem(VIEW_MODE_KEY, mode === 'comments' ? 'comments' : 'articles')
 }
 
-// Muted users — stored as [{urlname, nickname}]
+// Muted users — stored as [{urlname, nickname}]（note ID ごと。owner がその ID）
 const MUTED_KEY = 'ncm_muted_users'
 
-export function getMutedUsers() {
-  const raw = localStorage.getItem(MUTED_KEY)
-  return raw ? JSON.parse(raw) : []
-}
-
-export function addMutedUser(urlname, nickname) {
-  const list = getMutedUsers()
-  if (!list.some((u) => u.urlname === urlname)) {
-    list.push({ urlname, nickname: nickname || urlname })
-    localStorage.setItem(MUTED_KEY, JSON.stringify(list))
+export function getMutedUsers(owner = getUrlname()) {
+  try {
+    const raw = localStorage.getItem(keyFor(MUTED_KEY, owner))
+    const list = raw ? JSON.parse(raw) : []
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
   }
 }
 
-export function removeMutedUser(urlname) {
-  const list = getMutedUsers().filter((u) => u.urlname !== urlname)
-  localStorage.setItem(MUTED_KEY, JSON.stringify(list))
+export function addMutedUser(urlname, nickname, owner = getUrlname()) {
+  const list = getMutedUsers(owner)
+  if (!list.some((u) => u.urlname === urlname)) {
+    list.push({ urlname, nickname: nickname || urlname })
+    localStorage.setItem(keyFor(MUTED_KEY, owner), JSON.stringify(list))
+  }
+}
+
+export function removeMutedUser(urlname, owner = getUrlname()) {
+  const list = getMutedUsers(owner).filter((u) => u.urlname !== urlname)
+  localStorage.setItem(keyFor(MUTED_KEY, owner), JSON.stringify(list))
 }
 
 // Cache
 export function getCache(urlname) {
   try {
-    const raw = localStorage.getItem(CACHE_KEY)
+    const raw = localStorage.getItem(keyFor(CACHE_KEY, urlname))
     if (!raw) return null
     const cache = JSON.parse(raw)
     if (cache.urlname !== urlname) return null
@@ -279,7 +402,7 @@ export function saveCache(urlname, articles) {
     articles,
   }
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+    localStorage.setItem(keyFor(CACHE_KEY, urlname), JSON.stringify(cache))
   } catch {
     // localStorage full — ignore
   }
@@ -291,7 +414,7 @@ export function saveCache(urlname, articles) {
  */
 export function readPreviousCacheRaw(urlname) {
   try {
-    const raw = localStorage.getItem(CACHE_KEY)
+    const raw = localStorage.getItem(keyFor(CACHE_KEY, urlname))
     if (!raw) return null
     const cache = JSON.parse(raw)
     if (!cache || cache.urlname !== urlname) return null
@@ -312,10 +435,10 @@ export function readPreviousCacheRaw(urlname) {
  *   { ok: false, storageStatus: 'skipped' }                                            — null 入力
  */
 export function saveCacheWithMeta(nextCache) {
-  if (!nextCache) return { ok: false, storageStatus: 'skipped' }
+  if (!nextCache || !nextCache.urlname) return { ok: false, storageStatus: 'skipped' }
   const { cache, json, sizeBytes } = prepareCacheForSave(nextCache)
   try {
-    localStorage.setItem(CACHE_KEY, json)
+    localStorage.setItem(keyFor(CACHE_KEY, cache.urlname), json)
     return { ok: true, storageStatus: 'saved', sizeBytes, cache }
   } catch (error) {
     return {
