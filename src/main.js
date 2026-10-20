@@ -1,5 +1,5 @@
 import './style.css'
-import { getIncludePinnedOutsideRange, setIncludePinnedOutsideRange, getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, addManualRepliedMany, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents, getSeasonalOutfitEnabled, setSeasonalOutfitEnabled, getOutfitUnlocks, setOutfitUnlocks, getReplyTrackingStartedAt, setReplyTrackingStartedAt } from './storage.js'
+import { getIncludePinnedOutsideRange, setIncludePinnedOutsideRange, getUrlname, setUrlname, getCache, saveCache, readPreviousCacheRaw, saveCacheWithMeta, getCacheStorageStatus, removeCommentFromCache, getRangeDays, setRangeDays, getManualReplied, getManualRepliedEntries, addManualReplied, addManualRepliedMany, getMutedUsers, addMutedUser, removeMutedUser, getRingVisible, setRingVisible, getLegacyCommentsVisible, setLegacyCommentsVisible, getViewMode, setViewMode, getDebugEvents, getSeasonalOutfitEnabled, setSeasonalOutfitEnabled, getOutfitUnlocks, setOutfitUnlocks, getReplyTrackingStartedAt, setReplyTrackingStartedAt, migrateToMultiAccount, getSavedUrlnames, setSavedUrlnames, removeAccountData, getAccountProfiles, setAccountProfile, MAX_ACCOUNTS } from './storage.js'
 import { validateCreator, fetchAllArticles, fetchAllArticlesWithMeta, fetchUpdatedComments, fetchUpdatedCommentsWithMeta, fetchRingUserList, fetchCreatorProfile, optOutRing, optInRing, fetchThreadConversation } from './api.js'
 import { commitCacheDecision, markFetchFailed, emptyFetchMeta, mergeFetchMeta, shouldShowFetchWarningIcon } from './lib/fetch-meta.js'
 import { filterActionableComments } from './lib/cache-storage.js'
@@ -8,6 +8,9 @@ import { processComments as processCommentsCore } from './lib/process-comments.j
 import { shouldShowPraise } from './lib/should-show-praise.js'
 import { buildSupportData } from './lib/support-data.js'
 import { countNewSince, classifyThreadReplies } from './lib/reply-thread.js'
+
+// note ID 1つの時代の保存データを、ID ごとの形へ移す（ほかの読み出しより先に）
+migrateToMultiAccount()
 
 // --- Interaction tracking (for manualReplied 異常検知) ---
 const interactionState = {
@@ -65,7 +68,8 @@ async function loadOutfitUnlocks() {
   const noteId = getUrlname()
   if (!noteId) return
   const { unlocks } = await fetchOutfitUnlocks(noteId, outfitStorage)
-  outfitUnlocks = unlocks
+  // 通信中に別の ID へ切り替えていたら、前の ID の解放状態で上書きしない
+  if (getUrlname() === noteId) outfitUnlocks = unlocks
 }
 
 // --- Reward selection (unreplied-zero chibi演出) ---
@@ -414,8 +418,21 @@ const legacyCommentsToggle = $('legacyCommentsToggle')
 const seasonalOutfitToggle = $('seasonalOutfitToggle')
 const includePinnedToggle = $('includePinnedToggle')
 
+const urlnameInput2 = $('urlnameInput2')
+
+// 「輪・取得設定・非表示ユーザーは、いま表示中の ID の分」と添える（ID が2つのときだけ）
+function renderPerAccountNote() {
+  const note = $('perAccountNote')
+  const saved = getSavedUrlnames()
+  note.hidden = saved.length < 2
+  note.textContent = `輪・取得設定・非表示ユーザーは、いま表示中の @${getUrlname()} の設定です`
+}
+
 $('settingsBtn').addEventListener('click', () => {
-  urlnameInput.value = getUrlname()
+  const saved = getSavedUrlnames()
+  urlnameInput.value = saved[0] || getUrlname()
+  urlnameInput2.value = saved[1] || ''
+  renderPerAccountNote()
   rangeSelect.value = String(getRangeDays())
   includePinnedToggle.checked = getIncludePinnedOutsideRange()
   renderMutedUsers()
@@ -483,21 +500,44 @@ $('supportCopyBtn').addEventListener('click', async () => {
 const saveBtn = $('settingsSaveBtn')
 
 saveBtn.addEventListener('click', async () => {
-  const urlname = urlnameInput.value.trim()
-  if (!urlname) return
-  const previousUrlname = getUrlname()
+  const first = urlnameInput.value.trim()
+  const second = urlnameInput2.value.trim()
+  if (!first) return
   clearSettingsError()
+  if (second && second === first) {
+    showSettingsError('2つ目の note ID が1つ目と同じです。')
+    return
+  }
+  const previousSaved = getSavedUrlnames()
+  const previousUrlname = getUrlname()
+  const nextSaved = [first, second].filter(Boolean).slice(0, MAX_ACCOUNTS)
   saveBtn.disabled = true
   saveBtn.textContent = '確認中...'
 
   try {
-    await validateCreator(urlname)
+    // 新しく入れた ID だけ、note にあるか確かめる
+    for (const u of nextSaved) {
+      if (!previousSaved.includes(u)) await validateCreator(u)
+    }
+    setSavedUrlnames(nextSaved)
+    // 外した ID のキャッシュは消す（容量を空ける）
+    for (const u of previousSaved) {
+      if (!nextSaved.includes(u)) removeAccountData(u)
+    }
+    // 表示する ID: いまの ID が残っていればそのまま。書き換えたなら同じ欄の新しい ID
+    let urlname = previousUrlname
+    if (!nextSaved.includes(urlname)) {
+      const slot = previousSaved.indexOf(previousUrlname)
+      urlname = nextSaved[slot] || nextSaved[0]
+    }
     setUrlname(urlname)
-    setRangeDays(Number(rangeSelect.value))
+
+    // ここから下は、表示する ID の設定
+    setRangeDays(Number(rangeSelect.value), urlname)
     // Ring visible toggle
     const newRingVisible = ringVisibleToggle.checked
-    const wasRingVisible = getRingVisible()
-    setRingVisible(newRingVisible)
+    const wasRingVisible = getRingVisible(urlname)
+    setRingVisible(newRingVisible, urlname)
     if (wasRingVisible && !newRingVisible) {
       await optOutRing(urlname).catch(() => {})
     } else if (!wasRingVisible && newRingVisible) {
@@ -505,28 +545,29 @@ saveBtn.addEventListener('click', async () => {
     }
     // Legacy comments toggle: clear cache when changed to force refetch
     const newLegacyVisible = legacyCommentsToggle.checked
-    const wasLegacyVisible = getLegacyCommentsVisible()
-    setLegacyCommentsVisible(newLegacyVisible)
+    const wasLegacyVisible = getLegacyCommentsVisible(urlname)
+    setLegacyCommentsVisible(newLegacyVisible, urlname)
     if (newLegacyVisible !== wasLegacyVisible) {
       saveCache(urlname, [])
     }
     // 期間外の固定記事トグル: 変更時はキャッシュを捨てて取り直す
     // （OFF にしたとき、キャッシュ済みの期間外固定記事が残り続けるのを防ぐ）
     const newIncludePinned = includePinnedToggle.checked
-    const wasIncludePinned = getIncludePinnedOutsideRange()
-    setIncludePinnedOutsideRange(newIncludePinned)
+    const wasIncludePinned = getIncludePinnedOutsideRange(urlname)
+    setIncludePinnedOutsideRange(newIncludePinned, urlname)
     if (newIncludePinned !== wasIncludePinned) {
       saveCache(urlname, [])
     }
     // Seasonal outfit toggle (local only — D1 には送らない)
     setSeasonalOutfitEnabled(seasonalOutfitToggle.checked)
-    // note ID が変わったら解放状態を取り直す
-    if (urlname !== previousUrlname) {
-      outfitUnlocks = getOutfitUnlocks(urlname) || {}
-      loadOutfitUnlocks()
-    }
     closeModal(settingsModal)
-    refresh()
+    loadAccountProfiles()
+    if (urlname !== previousUrlname) {
+      showAccount(urlname)
+    } else {
+      renderAccountSwitcher()
+      refresh()
+    }
   } catch (err) {
     const msg = err.message.includes('404')
       ? 'クリエータが見つかりません。名前を確認してください。'
@@ -537,6 +578,68 @@ saveBtn.addEventListener('click', async () => {
     saveBtn.textContent = '保存'
   }
 })
+
+// --- note ID の切り替え（ヘッダー） ---
+
+const accountSwitcher = $('accountSwitcher')
+
+// ID が2つ保存されているときだけ、ヘッダーに2つ並べる
+function renderAccountSwitcher() {
+  const saved = getSavedUrlnames()
+  if (saved.length < 2) {
+    accountSwitcher.hidden = true
+    accountSwitcher.innerHTML = ''
+    return
+  }
+  const current = getUrlname()
+  const profiles = getAccountProfiles()
+  accountSwitcher.innerHTML = saved.map((u) => {
+    const avatarUrl = profiles[u]?.avatarUrl
+    const avatar = avatarUrl
+      ? `<img class="account-avatar" src="${encodeURI(avatarUrl)}" alt="" />`
+      : '<span class="account-avatar" aria-hidden="true"></span>'
+    const active = u === current
+    return `<button class="account-option${active ? ' is-active' : ''}" data-urlname="${escapeHtml(u)}" aria-pressed="${active}">${avatar}<span class="account-name">@${escapeHtml(u)}</span></button>`
+  }).join('')
+  accountSwitcher.hidden = false
+}
+
+accountSwitcher.addEventListener('click', (e) => {
+  const urlname = e.target.closest('[data-urlname]')?.dataset.urlname
+  if (!urlname || urlname === getUrlname()) return
+  setUrlname(urlname)
+  showAccount(urlname)
+})
+
+// 表示する ID を変えたあと: その ID のキャッシュですぐ一覧を出し、裏で更新する
+function showAccount(urlname) {
+  articlesWithComments = []
+  lastRefreshFailed = false
+  outfitUnlocks = getOutfitUnlocks(urlname) || {}
+  loadOutfitUnlocks()
+  renderAccountSwitcher()
+  updateFetchWarningIcon()
+  renderUpdateStatus()
+  refresh()
+}
+
+// 切り替えボタンのアイコン用に、まだ持っていない ID のプロフィールを取る
+async function loadAccountProfiles() {
+  const saved = getSavedUrlnames()
+  if (saved.length < 2) return
+  const profiles = getAccountProfiles()
+  let changed = false
+  for (const u of saved) {
+    if (profiles[u]) continue
+    try {
+      setAccountProfile(u, await fetchCreatorProfile(u))
+      changed = true
+    } catch {
+      // 取れなければアイコンなしで出す
+    }
+  }
+  if (changed) renderAccountSwitcher()
+}
 
 // --- Toggle replied ---
 
@@ -559,12 +662,19 @@ refreshBtn.addEventListener('click', () => {
 
 // refetchPending: 対応待ち（未返信・いいね済）の残る記事も取り直すか。
 // 起動時・設定保存時は false（commentCount が変わった記事だけ。v1.8.1 と同じ速さ）、更新ボタンのときだけ true。
+let refreshSeq = 0
+
 async function refresh({ refetchPending = false } = {}) {
   const urlname = getUrlname()
   if (!urlname) {
     openModal(settingsModal)
     return
   }
+
+  // 取得中に別の ID へ切り替えたら、前の取得は保存だけして画面には触らない
+  const seq = ++refreshSeq
+  const isCurrent = () => seq === refreshSeq && getUrlname() === urlname
+  const onProgress = (msg) => { if (isCurrent()) showProgress(msg) }
 
   isRefreshing = true
   refreshProgress = ''
@@ -582,29 +692,32 @@ async function refresh({ refetchPending = false } = {}) {
 
   // Show loading only if no cache
   if (!hasCache) {
+    articlesWithComments = []
+    loadingText.textContent = '読み込み中...'
     loading.hidden = false
     content.hidden = true
     summaryBar.hidden = true
+    $('viewModeBtn').hidden = true
   }
 
   try {
-    const rangeDays = getRangeDays()
-    const articlesRes = await fetchAllArticlesWithMeta(urlname, rangeDays, showProgress, { includePinnedOutsideRange: getIncludePinnedOutsideRange() })
+    const rangeDays = getRangeDays(urlname)
+    const articlesRes = await fetchAllArticlesWithMeta(urlname, rangeDays, onProgress, { includePinnedOutsideRange: getIncludePinnedOutsideRange(urlname) })
 
     // 返信の追跡開始時刻。まだ無ければ今回が基準化の取得になり、今より前の返信は「既存」扱い
     const savedTrackingStart = getReplyTrackingStartedAt(urlname)
     const replyBaseline = !savedTrackingStart
     const replyTrackingSince = savedTrackingStart || new Date().toISOString()
 
-    const legacyVisible = getLegacyCommentsVisible()
-    const commentsRes = await fetchUpdatedCommentsWithMeta(articlesRes.articles, cachedArticles, urlname, legacyVisible, showProgress, { manualKeys: getManualReplied(), replyBaseline, refetchPending })
+    const legacyVisible = getLegacyCommentsVisible(urlname)
+    const commentsRes = await fetchUpdatedCommentsWithMeta(articlesRes.articles, cachedArticles, urlname, legacyVisible, onProgress, { manualKeys: getManualReplied(), replyBaseline, refetchPending })
 
     // 取得結果から fetchMeta を合成
     const combinedMeta = mergeFetchMeta(articlesRes.fetchMeta, commentsRes.fetchMeta)
     const previousCacheRaw = readPreviousCacheRaw(urlname)
 
     // 前回の更新より後に届いたコメント・返信の件数（初回は null）
-    const mutedSet = new Set(getMutedUsers().map((u) => u.urlname))
+    const mutedSet = new Set(getMutedUsers(urlname).map((u) => u.urlname))
     const updateResult = countNewSince(commentsRes.result, urlname, previousCacheRaw?.meta?.finishedAt, mutedSet)
     if (combinedMeta.fetchStatus === 'complete') combinedMeta.updateResult = updateResult
 
@@ -640,10 +753,12 @@ async function refresh({ refetchPending = false } = {}) {
       setReplyTrackingStartedAt(urlname, replyTrackingSince)
     }
 
+    if (!isCurrent()) return
     // 画面表示には actionable な記事（repliedCount 集計済み）を使う
     articlesWithComments = processComments(actionableArticles, urlname)
     lastRefreshFailed = decision.action !== 'commit'
   } catch (err) {
+    if (!isCurrent()) return
     lastRefreshFailed = true
     if (!hasCache) {
       content.innerHTML = `<div class="error-banner">エラー: ${escapeHtml(err.message)}</div>`
@@ -736,7 +851,7 @@ $('fetchWarningCloseBtn')?.addEventListener('click', () => closeModal($('fetchWa
 
 function processComments(articles, urlname) {
   const manualReplied = getManualReplied()
-  const mutedUrlnames = getMutedUsers().map((u) => u.urlname)
+  const mutedUrlnames = getMutedUsers(urlname).map((u) => u.urlname)
   return processCommentsCore(articles, urlname, manualReplied, mutedUrlnames, getReplyTrackingStartedAt(urlname))
 }
 
@@ -1052,7 +1167,7 @@ function noteCommentUrl(article, commentKey) {
 // note を開く。戻ってきたら「対応済みにしますか？」を聞く
 function openOnNote(comment, article, bodyText) {
   if (comment.status === 'unreplied' || comment.status === 'liked') {
-    pendingComment = makePending(comment, article, bodyText)
+    pendingComment = { ...makePending(comment, article, bodyText), ownerUrlname: getUrlname() }
     sessionStorage.setItem('ncm_pending', JSON.stringify(pendingComment))
   }
   // 返信スレッドはルートコメントの位置へ飛ぶ（返信はその下に並ぶ）
@@ -1062,7 +1177,8 @@ function openOnNote(comment, article, bodyText) {
 
 function markHandled(pending) {
   if (!pending) return
-  const urlname = getUrlname()
+  // note を開いたときの ID（戻るまでのあいだに切り替えていても、その ID のキャッシュを直す）
+  const urlname = pending.ownerUrlname || getUrlname()
   if (pending.kind === 'thread') {
     // 返信はスレッドの会話表示に使うのでキャッシュからは消さない。手動印だけで判定する
     addManualRepliedMany(pending.commentKeys, getManualRepliedContext())
@@ -1225,7 +1341,7 @@ $('replyNoBtn').addEventListener('click', () => {
 
 muteUserBtn.addEventListener('click', () => {
   if (pendingComment && pendingComment.userUrlname) {
-    addMutedUser(pendingComment.userUrlname, pendingComment.userNickname)
+    addMutedUser(pendingComment.userUrlname, pendingComment.userNickname, pendingComment.ownerUrlname || getUrlname())
     pendingComment = null
     closeModal(replyModal)
     const urlname = getUrlname()
@@ -1342,6 +1458,8 @@ updateFetchWarningIcon()
 if (!getUrlname()) {
   openModal(settingsModal)
 } else {
+  renderAccountSwitcher()
+  loadAccountProfiles()
   loadOutfitUnlocks()
   refresh()
 }

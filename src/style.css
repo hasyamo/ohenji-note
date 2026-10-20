@@ -224,6 +224,60 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* note ID の切り替え（ID を2つ保存したときだけ出る） */
+.account-switcher {
+  margin-top: 12px;
+  display: inline-flex;
+  max-width: 100%;
+  padding: 3px;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+
+.account-switcher[hidden] {
+  display: none;
+}
+
+.account-option {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px 4px 4px;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+
+.account-option.is-active {
+  background: #fff;
+  color: var(--on-surface);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(60, 45, 20, 0.15);
+  cursor: default;
+}
+
+.account-avatar {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #e8dcc6;
+  object-fit: cover;
+}
+
+.account-name {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fetch-warning-details {
   margin-top: 12px;
   font-size: 0.85em;
